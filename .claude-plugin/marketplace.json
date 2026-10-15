@@ -1,0 +1,13 @@
+{
+  "name": "clawd-band",
+  "owner": { "name": "SleepNoMore", "url": "https://github.com/nninkovic95" },
+  "description": "clawd-band: an animated Clawd and your usage bars above the Claude Code prompt",
+  "plugins": [
+    {
+      "name": "clawd-band",
+      "source": "./",
+      "category": "productivity",
+      "tags": ["usage", "rate-limits", "kitty", "mascot"]
+    }
+  ]
+}
