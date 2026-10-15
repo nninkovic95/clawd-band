@@ -48,10 +48,11 @@ export const countdown = (resetsAt: string | null | undefined, now: number): str
   const total = Math.max(0, Math.floor((Date.parse(resetsAt) - now) / 1000))
   const days = Math.floor(total / 86400)
   if (days > 0) return `${days}d ${Math.floor((total % 86400) / 3600)}h`
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  // Not `h`: in a .tsx file that name is the JSX factory.
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
 // "claude-opus-5-5" -> "Opus 5.5"; a name already shown as words is kept.

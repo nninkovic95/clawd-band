@@ -139,7 +139,9 @@ The options are the plugin's `userConfig` fields, Claude Code's standard way for
 
 Each bar colour can be a Claude Code theme key, which follows your `/theme`: `success`, `warning`, `error`, `inactive`, `subtle`, `claude`, `suggestion`, `permission`, `planMode`, `autoAccept`, `ide` and others. It can also be a colour name (`green`, `magenta`) or hex (`#4eba65`). A value that is none of these falls back to the default. The key under `pluginConfigs` is `clawd-band@<marketplace>` for an installed copy, and `clawd-band` (or `clawd-band@inline`) when loaded with `--plugin-dir`.
 
-## What it reads, stores and sends
+## Privacy
+
+This section is clawd-band's privacy policy: what the mod reads, stores and sends. clawd-band has no server of its own and collects nothing.
 
 **The one host it contacts is `api.anthropic.com`, with one request:** `GET https://api.anthropic.com/api/oauth/usage` (`hooks/register.tsx`, `fetchAccountUsage`).
 
@@ -153,12 +155,15 @@ Each bar colour can be a Claude Code theme key, which follows your `/theme`: `su
 - Whether the model's output stream is in a thinking, text or tool-call part, to switch between the thinking and working poses. It does not read the content of those parts.
 - The model name and reasoning effort, for the line under the sprite.
 - The rate-limit readings Claude Code already holds.
+- The session id, to notice a `/clear` (which starts a new session in the same process) and load the band again. It is compared with the last id seen and never sent.
 
-**What it stores:** the last usage reading and the last model and effort, in Claude Code's own plugin store, so that the band is filled at startup. A cached effort is shown only for the same model.
+**What it stores:** the last usage reading and the last model and effort, in Claude Code's own plugin store on your machine, so that the band is filled at startup. A cached effort is shown only for the same model. Each new reading replaces the old one; uninstalling the plugin and deleting its store removes them.
 
-No telemetry, no other network calls, and no files written outside the plugin store.
+No telemetry, no analytics, no third parties, no other network calls, and no files written outside the plugin store. The usage request goes to Anthropic under your own account, and Anthropic's [privacy policy](https://www.anthropic.com/legal/privacy) applies to it. Questions or concerns: [open an issue](https://github.com/nninkovic95/clawd-band/issues).
 
 ## Development
+
+`scripts/` holds two developer tools that the plugin never runs. `render-demo.ts` writes the demo GIFs in `docs/demo/`, and `render-icon.ts` writes `.claude-plugin/icon.png`. Both are run by hand with node, and both write images; neither reads or runs one.
 
 ```sh
 claude plugin validate .
