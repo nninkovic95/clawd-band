@@ -1,7 +1,7 @@
 {
   "name": "clawd-band",
   "version": "0.2.2",
-  "description": "A band above the prompt: an animated Clawd sprite, five-hour and weekly usage bars, and a countdown to the five-hour reset",
+  "description": "A band above the prompt: an animated Clawd sprite, five-hour and weekly usage bars, and a countdown to each window's reset",
   "author": { "name": "SleepNoMore", "url": "https://github.com/nninkovic95" },
   "homepage": "https://github.com/nninkovic95/clawd-band",
   "repository": "https://github.com/nninkovic95/clawd-band",
