@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, SessionRateLimit } from 'claude-code'
 
 import type { Model, Pose, Usage, Window } from '../types'
-import { ALT, FRAMES, PIXEL_HEIGHT, PIXEL_WIDTH } from './sprite'
+import { ALT, CLAUDE_ORANGE, FRAMES, framesFor, PIXEL_HEIGHT, PIXEL_WIDTH } from './sprite'
+import type { Rgb } from './sprite'
 
 const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
 const usageAtom = atom({ plugin: 'clawd-band', key: 'usage' } as const, null)
@@ -95,7 +96,54 @@ async function setUsage($: EngineInterface, limits: readonly SessionRateLimit[])
   if (merged) await $.store.set('usage', merged)
 }
 
-export const barColor = (percent: number) => (percent >= 85 ? 'error' : percent >= 60 ? 'warning' : 'success')
+// The person's userConfig values (plugin.json), checked: a colour that is not
+// a theme key, a colour name or hex falls back to its default.
+export type Settings = {
+  showModel: boolean
+  spriteColor: string
+  spriteRgb: Rgb
+  low: string
+  mid: string
+  high: string
+  empty: string
+}
+
+const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i
+const COLOR = /^([a-z]+|#[0-9a-f]{3}|#[0-9a-f]{6})$/i // a theme key, a colour name, or hex
+
+const toRgb = (hex: string): Rgb | null => {
+  const m = HEX.exec(hex.trim())
+  if (!m) return null
+  const digits = m[1].length === 3 ? [...m[1]].map(d => d + d).join('') : m[1]
+  return [0, 2, 4].map(i => parseInt(digits.slice(i, i + 2), 16)) as Rgb
+}
+
+const textColor = (value: unknown, fallback: string): string =>
+  typeof value === 'string' && COLOR.test(value.trim()) ? value.trim() : fallback
+
+export const settings = (options: PluginOptions): Settings => {
+  const parsed = typeof options.sprite_color === 'string' ? toRgb(options.sprite_color) : null
+  const custom = parsed && parsed.join() !== CLAUDE_ORANGE.join() ? parsed : null
+  const spriteRgb = custom ?? CLAUDE_ORANGE
+  return {
+    showModel: options.show_model !== false,
+    // The text logo shown while a question is open: the theme's own Claude
+    // colour unless the sprite has one of its own.
+    spriteColor: custom ? `#${custom.map(c => c.toString(16).padStart(2, '0')).join('')}` : 'claude',
+    spriteRgb,
+    low: textColor(options.bar_color_low, 'success'),
+    mid: textColor(options.bar_color_mid, 'warning'),
+    high: textColor(options.bar_color_high, 'error'),
+    empty: textColor(options.bar_color_empty, 'inactive'),
+  }
+}
+
+// Set by register from the person's options; a change there reloads the module.
+let config = settings({})
+let frames = FRAMES
+
+export const barColor = (percent: number, colors: Settings = config) =>
+  percent >= 85 ? colors.high : percent >= 60 ? colors.mid : colors.low
 
 // The timer reads these between draws; a reload starts them over.
 const live: {
@@ -129,8 +177,8 @@ function tick($: EngineInterface) {
   live.frame += 1
   // Frozen while a question dialog is open: frame swaps kept it from showing as a menu.
   if (!live.bandId || live.isAsking) return
-  const frames = FRAMES[shown()]
-  const rgba = frames[live.frame % frames.length]
+  const poseFrames = frames[shown()]
+  const rgba = poseFrames[live.frame % poseFrames.length]
   $.ui
     .blit({ requestId: live.bandId, key: 'clawd', source: { rgba, width: PIXEL_WIDTH, height: PIXEL_HEIGHT } })
     .catch(() => undefined)
@@ -210,7 +258,10 @@ function ensureStarted($: EngineInterface) {
   $.ui.invalidate('ui.render')
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  config = settings(options)
+  frames = config.spriteRgb === CLAUDE_ORANGE ? FRAMES : framesFor(config.spriteRgb)
+
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     ensureStarted($)
@@ -296,10 +347,10 @@ export const register: Register = on => {
     const { Box, Text, Image } = $.ui.resolve(e)
 
     const current = shown()
-    const frames = FRAMES[current]
+    const poseFrames = frames[current]
     const modelName = model.name ? shortModel(model.name) : '--'
     const caption = model.effort ? `${modelName} ${model.effort}` : modelName
-    const left = Math.max(SPRITE_COLUMNS + 1, caption.length)
+    const left = config.showModel ? Math.max(SPRITE_COLUMNS + 1, caption.length) : SPRITE_COLUMNS + 1
     const barWidth = Math.max(4, e.props.bodyColumns - left - 1 - LABEL - PERCENT - RESET)
 
     const bar = (label: string, window: Window | null | undefined) => {
@@ -309,7 +360,7 @@ export const register: Register = on => {
         <Box flexDirection="row">
           <Text dimColor>{label} </Text>
           <Text color={barColor(percent)}>{'█'.repeat(filled)}</Text>
-          <Text color="inactive">{'░'.repeat(barWidth - filled)}</Text>
+          <Text color={config.empty}>{'░'.repeat(barWidth - filled)}</Text>
           <Text dimColor={!window}>{window ? ` ${String(Math.round(percent)).padStart(3)}%` : '   --'}</Text>
           <Text dimColor> ↻ </Text>
           <Text bold={!!window?.resetsAt}>{countdown(window?.resetsAt, now).padStart(RESET - 3)}</Text>
@@ -324,23 +375,25 @@ export const register: Register = on => {
             // A kitty image sits on a layer above the text and covered the
             // question menu; while it is open, Clawd is the CLI's text logo.
             <Box flexDirection="column">
-              <Text color="claude"> ▐▛███▜▌ </Text>
-              <Text color="claude">▝▜█████▛▘</Text>
-              <Text color="claude">  ▘▘ ▝▝  </Text>
+              <Text color={config.spriteColor}> ▐▛███▜▌ </Text>
+              <Text color={config.spriteColor}>▝▜█████▛▘</Text>
+              <Text color={config.spriteColor}>  ▘▘ ▝▝  </Text>
             </Box>
           ) : (
             <Image
               key="clawd"
-              source={{ rgba: frames[live.frame % frames.length], width: PIXEL_WIDTH, height: PIXEL_HEIGHT }}
+              source={{ rgba: poseFrames[live.frame % poseFrames.length], width: PIXEL_WIDTH, height: PIXEL_HEIGHT }}
               columns={SPRITE_COLUMNS}
               rows={SPRITE_ROWS}
               alt={ALT[current]}
             />
           )}
-          <Box flexDirection="row">
-            <Text bold>{modelName}</Text>
-            {model.effort ? <Text dimColor> {model.effort}</Text> : null}
-          </Box>
+          {config.showModel ? (
+            <Box key="model" flexDirection="row">
+              <Text bold>{modelName}</Text>
+              {model.effort ? <Text dimColor> {model.effort}</Text> : null}
+            </Box>
+          ) : null}
         </Box>
         <Box flexDirection="column" marginLeft={1}>
           {bar('7d', usage?.sevenDay)}

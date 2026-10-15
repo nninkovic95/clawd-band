@@ -1,7 +1,17 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { barColor, countdown, mergeUsage, parseAccountUsage, poseFor, resetExpired, shortModel, toUsage } from './register'
-import { ART_HEIGHT, ART_WIDTH, FRAMES, PIXEL_HEIGHT, PIXEL_WIDTH, SCALE } from './sprite'
+import {
+  barColor,
+  countdown,
+  mergeUsage,
+  parseAccountUsage,
+  poseFor,
+  resetExpired,
+  settings,
+  shortModel,
+  toUsage,
+} from './register'
+import { ART_HEIGHT, ART_WIDTH, CLAUDE_ORANGE, FRAMES, framesFor, PIXEL_HEIGHT, PIXEL_WIDTH, SCALE } from './sprite'
 
 const BAND = {
   plugin: 'clawd-band',
@@ -45,9 +55,48 @@ test('countdown and colours', async () => {
   expect(countdown('2026-10-11T14:00:00Z', now)).toBe('0:00:00')
   expect(countdown(null, now)).toBe('-:--:--')
   expect(countdown('2026-10-14T19:30:00Z', now)).toBe('3d 4h')
-  expect(barColor(10)).toBe('success')
-  expect(barColor(60)).toBe('warning')
-  expect(barColor(85)).toBe('error')
+  const defaults = settings({})
+  expect(barColor(10, defaults)).toBe('success')
+  expect(barColor(60, defaults)).toBe('warning')
+  expect(barColor(85, defaults)).toBe('error')
+})
+
+test('options are checked, a bad colour falls back to its default', async () => {
+  const defaults = settings({})
+  expect(defaults.showModel).toBe(true)
+  expect(defaults.spriteColor).toBe('claude')
+  expect(settings({ sprite_color: '#d77757' }).spriteColor).toBe('claude')
+  const custom = settings({
+    show_model: false,
+    sprite_color: '3af',
+    bar_color_low: '#00ff00',
+    bar_color_mid: 'magenta',
+    bar_color_high: 'red; drop',
+    bar_color_empty: 'subtle',
+  })
+  expect(custom.showModel).toBe(false)
+  expect(custom.spriteRgb).toEqual([0x33, 0xaa, 0xff])
+  expect(custom.spriteColor).toBe('#33aaff')
+  expect(custom.low).toBe('#00ff00')
+  expect(custom.mid).toBe('magenta')
+  expect(custom.high).toBe('error')
+  expect(custom.empty).toBe('subtle')
+  expect(settings({ sprite_color: 'not a colour' }).spriteRgb).toEqual(CLAUDE_ORANGE)
+})
+
+test('a sprite colour repaints the body only', async () => {
+  const blue = framesFor([0, 0, 255])
+  const px = Uint8Array.fromBase64(blue.idle[0])
+  const orange = Uint8Array.fromBase64(FRAMES.idle[0])
+  expect(px.length).toBe(orange.length)
+  let body = 0
+  for (let i = 0; i < px.length; i += 4) {
+    if (orange[i] === 215 && orange[i + 1] === 119 && orange[i + 2] === 87) {
+      expect([px[i], px[i + 1], px[i + 2]]).toEqual([0, 0, 255])
+      body += 1
+    }
+  }
+  expect(body > 0).toBe(true)
 })
 
 test('every frame is a whole RGBA picture', async () => {
@@ -68,8 +117,41 @@ test('the band draws the sprite, both bars and the countdown', async ($, on) => 
   expect(await ui.find({ type: 'Text', text: /^5h/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' ↻ ' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '--' })).toBeDefined()
+  expect(await ui.find({ key: 'model' })).toBeDefined()
   await ui.unmount()
 })
+
+test('show_model off drops the model line', { options: { show_model: false } }, async ($, on) => {
+  mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  on('ui.render', () => null)
+  const ui = await $.ui.mount(BAND)
+  expect(await ui.find({ key: 'clawd' })).toBeDefined()
+  expect(await ui.find({ key: 'model' })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test(
+  'the bars take the configured colours',
+  { options: { bar_color_low: '#00ff00', bar_color_empty: 'gray' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+    mock.store(on, {
+      usage: {
+        fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T18:00:00Z' },
+        sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
+      },
+    })
+    on('ui.render', () => null)
+    const first = await $.ui.mount(BAND)
+    await clock.advance(1)
+    await first.unmount()
+    const ui = await $.ui.mount(BAND)
+    expect((await ui.find({ type: 'Text', text: '█' }))?.props.color).toBe('#00ff00')
+    expect((await ui.find({ type: 'Text', text: '░' }))?.props.color).toBe('gray')
+    await ui.unmount()
+  },
+)
 
 test('the band yields to a survey', async ($, on) => {
   mock.clock(on)

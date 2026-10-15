@@ -65,6 +65,38 @@ claude plugin install clawd-band --marketplace nninkovic95/clawd-band
 
 To run it from a clone while you work on it: `claude --plugin-dir /path/to/clawd-band`.
 
+## Configuration
+
+The options are the plugin's `userConfig` fields, Claude Code's standard way for a plugin to take settings. You can set them on the screen shown at install, or later in `/config`, where each one is a row. A change reloads the band at once. Claude Code stores them in `~/.claude/settings.json` under `pluginConfigs`:
+
+```json
+{
+  "pluginConfigs": {
+    "clawd-band@clawd-band": {
+      "options": {
+        "show_model": false,
+        "sprite_color": "#6a9bcc",
+        "bar_color_low": "suggestion",
+        "bar_color_mid": "#ffc107",
+        "bar_color_high": "red",
+        "bar_color_empty": "subtle"
+      }
+    }
+  }
+}
+```
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `show_model` | `true` | Shows the model and effort line under Clawd. Turned off, the band is three rows tall. |
+| `sprite_color` | `#d77757` | Clawd's body colour, as hex. The props keep their own colours. |
+| `bar_color_low` | `success` | Bar colour below 60%. |
+| `bar_color_mid` | `warning` | Bar colour from 60%. |
+| `bar_color_high` | `error` | Bar colour from 85%. |
+| `bar_color_empty` | `inactive` | The unfilled part of each bar. |
+
+Each bar colour can be a Claude Code theme key, which follows your `/theme`: `success`, `warning`, `error`, `inactive`, `subtle`, `claude`, `suggestion`, `permission`, `planMode`, `autoAccept`, `ide` and others. It can also be a colour name (`green`, `magenta`) or hex (`#4eba65`). A value that is none of these falls back to the default. The key under `pluginConfigs` is `clawd-band@<marketplace>` for an installed copy, and `clawd-band` (or `clawd-band@inline`) when loaded with `--plugin-dir`.
+
 ## What it reads, stores and sends
 
 - **Usage**: rate-limit readings come from Claude Code's own session data, which records them from the response headers of the requests Claude Code already makes. A fresh session has no reading before its first reply, so at startup the mod asks Claude Code for the session's OAuth handle (`$.session.authorize()`). It then makes one `GET` to `https://api.anthropic.com/api/oauth/usage`, the endpoint `/usage` reads. Nothing is sent but that request, and only for subscription logins.
@@ -79,7 +111,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-`claude plugin test` runs `hooks/band.test.tsx`: pose mapping, usage parsing and merging, countdowns and colours, whole RGBA frames, the band's content, the survey case, and a `/clear` reload. Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
+`claude plugin test` runs `hooks/band.test.tsx`: pose mapping, usage parsing and merging, countdowns and colours, whole RGBA frames, the band's content, the survey case, a `/clear` reload, and the options (checking, the model line, bar and sprite colours). Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
 
 ## Credits
 

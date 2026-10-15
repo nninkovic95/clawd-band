@@ -1,11 +1,49 @@
 {
   "name": "clawd-band",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A band above the prompt: an animated Clawd sprite, five-hour and weekly usage bars, and a countdown to the five-hour reset",
   "author": { "name": "SleepNoMore", "url": "https://github.com/nninkovic95" },
   "homepage": "https://github.com/nninkovic95/clawd-band",
   "repository": "https://github.com/nninkovic95/clawd-band",
   "license": "MIT",
   "keywords": ["clawd", "usage", "rate-limits", "kitty", "mod"],
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "show_model": {
+      "type": "boolean",
+      "title": "Show model and effort",
+      "description": "Show the model and reasoning effort (e.g. Opus 5.5 high) on the line under Clawd. Off makes the band three rows tall.",
+      "default": true
+    },
+    "sprite_color": {
+      "type": "string",
+      "title": "Clawd colour",
+      "description": "Clawd's body colour, as hex (#d77757 is Claude orange).",
+      "default": "#d77757"
+    },
+    "bar_color_low": {
+      "type": "string",
+      "title": "Bar colour below 60%",
+      "description": "A theme key (success, claude, suggestion, ...), a colour name (green) or hex (#4eba65).",
+      "default": "success"
+    },
+    "bar_color_mid": {
+      "type": "string",
+      "title": "Bar colour from 60%",
+      "description": "A theme key, a colour name or hex.",
+      "default": "warning"
+    },
+    "bar_color_high": {
+      "type": "string",
+      "title": "Bar colour from 85%",
+      "description": "A theme key, a colour name or hex.",
+      "default": "error"
+    },
+    "bar_color_empty": {
+      "type": "string",
+      "title": "Empty bar colour",
+      "description": "The unfilled part of each bar: a theme key, a colour name or hex.",
+      "default": "inactive"
+    }
+  }
 }

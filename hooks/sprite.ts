@@ -10,8 +10,12 @@ export const SCALE = 5
 export const PIXEL_WIDTH = ART_WIDTH * SCALE
 export const PIXEL_HEIGHT = ART_HEIGHT * SCALE
 
-const COLORS: Record<string, [number, number, number]> = {
-  '#': [215, 119, 87], // Claude orange
+export type Rgb = [number, number, number]
+
+export const CLAUDE_ORANGE: Rgb = [215, 119, 87]
+
+const COLORS: Record<string, Rgb> = {
+  '#': CLAUDE_ORANGE, // the body, replaced by the sprite_color option
   w: [235, 232, 225], // thought dots, speed lines, ink
   y: [240, 190, 60], // pencil, "?"
   k: [70, 60, 55], // pencil tip, glass handle
@@ -151,12 +155,12 @@ const ART: Record<Pose, Grid[]> = {
   delegating,
 }
 
-const toBase64 = (art: Grid): string => {
+const toBase64 = (art: Grid, colors: Record<string, Rgb>): string => {
   const px = new Uint8Array(PIXEL_WIDTH * PIXEL_HEIGHT * 4)
   for (let y = 0; y < PIXEL_HEIGHT; y++) {
     const row = art[Math.floor(y / SCALE)]
     for (let x = 0; x < PIXEL_WIDTH; x++) {
-      const rgb = COLORS[row[Math.floor(x / SCALE)]]
+      const rgb = colors[row[Math.floor(x / SCALE)]]
       if (!rgb) continue
       const i = (y * PIXEL_WIDTH + x) * 4
       px[i] = rgb[0]
@@ -169,17 +173,23 @@ const toBase64 = (art: Grid): string => {
 }
 
 // Every frame encoded once at load, so a tick only swaps a string.
-export const FRAMES: Record<Pose, string[]> = {
-  idle: ART.idle.map(toBase64),
-  thinking: ART.thinking.map(toBase64),
-  questioning: ART.questioning.map(toBase64),
-  working: ART.working.map(toBase64),
-  reading: ART.reading.map(toBase64),
-  writing: ART.writing.map(toBase64),
-  running: ART.running.map(toBase64),
-  searching: ART.searching.map(toBase64),
-  delegating: ART.delegating.map(toBase64),
+export const framesFor = (body: Rgb): Record<Pose, string[]> => {
+  const colors = { ...COLORS, '#': body }
+  const encode = (art: Grid) => toBase64(art, colors)
+  return {
+    idle: ART.idle.map(encode),
+    thinking: ART.thinking.map(encode),
+    questioning: ART.questioning.map(encode),
+    working: ART.working.map(encode),
+    reading: ART.reading.map(encode),
+    writing: ART.writing.map(encode),
+    running: ART.running.map(encode),
+    searching: ART.searching.map(encode),
+    delegating: ART.delegating.map(encode),
+  }
 }
+
+export const FRAMES = framesFor(CLAUDE_ORANGE)
 
 export const ALT: Record<Pose, string> = {
   idle: 'Clawd resting',
