@@ -173,18 +173,19 @@ async function setPose($: EngineInterface, next: Pose) {
   await update($, poseAtom, () => next)
 }
 
-function tick($: EngineInterface) {
+async function tick($: EngineInterface) {
   live.frame += 1
   // Frozen while a question dialog is open: frame swaps kept it from showing as a menu.
   if (!live.bandId || live.isAsking) return
   const poseFrames = frames[shown()]
-  const rgba = poseFrames[live.frame % poseFrames.length]
-  $.ui
-    .blit({ requestId: live.bandId, key: 'clawd', source: { rgba, width: PIXEL_WIDTH, height: PIXEL_HEIGHT } })
-    .catch(() => undefined)
+  const source = { rgba: poseFrames[live.frame % poseFrames.length], width: PIXEL_WIDTH, height: PIXEL_HEIGHT }
+  try {
+    await $.ui.blit({ requestId: live.bandId, key: 'clawd', source })
+  } catch {
+    // The band was taken down between draws; the next render places it again.
+  }
 }
 
-const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const USAGE_WINDOWS = ['five_hour', 'seven_day']
 
 // The account usage endpoint (what /usage reads): `{ five_hour: { utilization,
@@ -209,7 +210,12 @@ export const parseAccountUsage = (text: string): SessionRateLimit[] => {
 async function fetchAccountUsage($: EngineInterface): Promise<SessionRateLimit[]> {
   const auth = await $.session.authorize()
   if (auth?.kind !== 'bearer') return []
-  const res = await $.http.fetch(USAGE_URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20' } })
+  // The one request the mod makes: GET, to this address only, with the
+  // person's own sign-in; it sends nothing from the conversation.
+  const res = await $.http.fetch('https://api.anthropic.com/api/oauth/usage', {
+    auth: auth.handle,
+    headers: { 'anthropic-beta': 'oauth-2025-04-20' },
+  })
   return res.ok ? parseAccountUsage(res.text) : []
 }
 
@@ -217,7 +223,9 @@ async function fetchAccountUsage($: EngineInterface): Promise<SessionRateLimit[]
 // session has neither until its first reply: start from the last ones seen,
 // then ask the account for both windows as they stand now.
 async function loadUsage($: EngineInterface) {
-  const cached = resetExpired(((await $.store.get('usage')) as Usage | undefined) ?? null, await $.clock.now())
+  const stored = await $.store.get('usage')
+  const now = await $.clock.now()
+  const cached = resetExpired((stored as Usage | undefined) ?? null, now)
   if (cached) await update($, usageAtom, (current: Usage | null | undefined) => current ?? cached)
   const { rateLimits } = await $.session.usage()
   if (rateLimits.length > 0) return setUsage($, rateLimits)
@@ -226,7 +234,8 @@ async function loadUsage($: EngineInterface) {
 
 async function loadModel($: EngineInterface) {
   const name = await $.session.model()
-  const cached = (await $.store.get('model')) as Model | undefined
+  const stored = await $.store.get('model')
+  const cached = stored as Model | undefined
   // The stored effort belongs to the stored model; another model may differ.
   const effort = cached && cached.name === name ? cached.effort : null
   await setModel($, { name, effort: effort ?? undefined })
@@ -235,8 +244,12 @@ async function loadModel($: EngineInterface) {
 // A /clear goes on in the same process under a new session id, with empty
 // $.state and no session.start: a changed id loads usage and model again.
 async function loadSession($: EngineInterface) {
-  // An id that cannot be read still loads once.
-  const id = await $.session.id().catch(() => '')
+  let id = ''
+  try {
+    id = await $.session.id()
+  } catch {
+    // An id that cannot be read still loads once.
+  }
   if (id === live.sessionId) return
   live.sessionId = id
   await Promise.all([loadUsage($).catch(() => undefined), loadModel($).catch(() => undefined)])

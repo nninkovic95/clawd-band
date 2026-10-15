@@ -21,17 +21,59 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 
 The pose follows Claude's current step: thinking, replying, or the tool it is calling. When the turn ends, Clawd goes back to idle.
 
-| Pose | Raised by | In the band |
-| --- | --- | --- |
-| idle | Nothing running. Clawd stands and blinks now and then. | <img src="docs/demo/idle.gif" width="560" alt="idle"> |
-| thinking | The model is thinking. A hand scratches the head while a thought bubble rises. | <img src="docs/demo/thinking.gif" width="560" alt="thinking"> |
-| working | The model is replying, or calls any tool not listed below (`TodoWrite`, an MCP tool, …). Both arms pump. | <img src="docs/demo/working.gif" width="560" alt="working"> |
-| reading | `Read`, `Grep`, `Glob`, `LS`, `NotebookRead`, `ToolSearch`, and the Claude Docs connector's `read`, `query` and `guide`. Clawd holds up a book, the eyes run along the line, and a page turns. | <img src="docs/demo/reading.gif" width="560" alt="reading"> |
-| writing | `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and every other Claude Docs tool (`create`, `update`, `batch`, …). A pencil leaves a line of ink. | <img src="docs/demo/writing.gif" width="560" alt="writing"> |
-| running | `Bash`, `BashOutput`, `KillShell`, `TaskStop`. A stride and a bounce, with speed lines. | <img src="docs/demo/running.gif" width="560" alt="running"> |
-| searching | `WebFetch`, `WebSearch`. A magnifying glass, held up on one side and then the other. | <img src="docs/demo/searching.gif" width="560" alt="searching"> |
-| delegating | `Agent`, `Task`, `SendMessage`, `Workflow`, `Skill`. Clawd waves a small Clawd off on its errand. | <img src="docs/demo/delegating.gif" width="560" alt="delegating"> |
-| questioning | `AskUserQuestion`. A "?" bobs beside the head while Claude writes the question. | <img src="docs/demo/questioning.gif" width="560" alt="questioning"> |
+### idle
+
+Nothing running. Clawd stands and blinks now and then.
+
+<img src="docs/demo/idle.gif" alt="clawd-band, idle pose">
+
+### thinking
+
+The model is thinking. A hand scratches the head while a thought bubble rises.
+
+<img src="docs/demo/thinking.gif" alt="clawd-band, thinking pose">
+
+### working
+
+The model is replying, or calls any tool not listed below (`TodoWrite`, an MCP tool, …). Both arms pump.
+
+<img src="docs/demo/working.gif" alt="clawd-band, working pose">
+
+### reading
+
+`Read`, `Grep`, `Glob`, `LS`, `NotebookRead`, `ToolSearch`, and the Claude Docs connector's `read`, `query` and `guide`. Clawd holds up a book, the eyes run along the line, and a page turns.
+
+<img src="docs/demo/reading.gif" alt="clawd-band, reading pose">
+
+### writing
+
+`Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and every other Claude Docs tool (`create`, `update`, `batch`, …). A pencil leaves a line of ink.
+
+<img src="docs/demo/writing.gif" alt="clawd-band, writing pose">
+
+### running
+
+`Bash`, `BashOutput`, `KillShell`, `TaskStop`. A stride and a bounce, with speed lines.
+
+<img src="docs/demo/running.gif" alt="clawd-band, running pose">
+
+### searching
+
+`WebFetch`, `WebSearch`. A magnifying glass, held up on one side and then the other.
+
+<img src="docs/demo/searching.gif" alt="clawd-band, searching pose">
+
+### delegating
+
+`Agent`, `Task`, `SendMessage`, `Workflow`, `Skill`. Clawd waves a small Clawd off on its errand.
+
+<img src="docs/demo/delegating.gif" alt="clawd-band, delegating pose">
+
+### questioning
+
+`AskUserQuestion`. A "?" bobs beside the head while Claude writes the question.
+
+<img src="docs/demo/questioning.gif" alt="clawd-band, questioning pose">
 
 While an `AskUserQuestion` menu is open, Claude Code hides the band. The mod also swaps the sprite for Claude Code's text logo and stops animating until the menu closes, so a kitty image can't cover the menu.
 
@@ -99,10 +141,22 @@ Each bar colour can be a Claude Code theme key, which follows your `/theme`: `su
 
 ## What it reads, stores and sends
 
-- **Usage**: rate-limit readings come from Claude Code's own session data, which records them from the response headers of the requests Claude Code already makes. A fresh session has no reading before its first reply, so at startup the mod asks Claude Code for the session's OAuth handle (`$.session.authorize()`). It then makes one `GET` to `https://api.anthropic.com/api/oauth/usage`, the endpoint `/usage` reads. Nothing is sent but that request, and only for subscription logins.
-- **Model and effort**: read from the session and from each model request.
-- **Local storage**: the last usage reading and the last model and effort are kept in the plugin's store in Claude Code's own plugin storage, so the band is filled at startup. A cached effort is shown only for the same model.
-- No other network calls, no telemetry, no files written outside the plugin store.
+**The one host it contacts is `api.anthropic.com`, with one request:** `GET https://api.anthropic.com/api/oauth/usage` (`hooks/register.tsx`, `fetchAccountUsage`).
+
+- **When:** once at the start of a session, and again after `/clear`, but only if Claude Code has no rate-limit reading yet. Usually a reading already exists, because Claude Code records it from the response headers of its own requests, and then nothing is fetched.
+- **What is sent:** the request carries your own claude.ai sign-in, which Claude Code attaches through `$.session.authorize()` (the mod never sees the token), and the header `anthropic-beta: oauth-2025-04-20`. It has no body. Nothing from the conversation, your files or your settings is sent.
+- **What comes back:** your five-hour and weekly usage percentages and reset times. This is the same data `/usage` shows. An API-key session makes no request.
+
+**What it reads from the session** (all of it stays on your machine):
+
+- The name of each tool Claude calls (for example `Read` or `Bash`), to pick the pose. It does not read tool inputs, tool results or message text.
+- Whether the model's output stream is in a thinking, text or tool-call part, to switch between the thinking and working poses. It does not read the content of those parts.
+- The model name and reasoning effort, for the line under the sprite.
+- The rate-limit readings Claude Code already holds.
+
+**What it stores:** the last usage reading and the last model and effort, in Claude Code's own plugin store, so that the band is filled at startup. A cached effort is shown only for the same model.
+
+No telemetry, no other network calls, and no files written outside the plugin store.
 
 ## Development
 
