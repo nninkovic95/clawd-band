@@ -1,5 +1,5 @@
-// Renders the README demos: each pose inside the whole band (sprite, model
-// caption, both usage bars, reset countdowns), one GIF per pose plus a tour.
+// Renders the README demo: a tour of every pose inside the whole band (sprite,
+// model caption, both usage bars, reset countdowns), as one GIF.
 //
 // The sprite is drawn through kitty's graphics protocol, which terminal
 // recorders such as asciinema do not capture, so the demos are drawn here from
@@ -24,7 +24,7 @@ const SPRITE_ROWS = 3
 const FRAME_MS = 400
 const LABEL = 3
 const PERCENT = 5
-const RESET = 10
+const RESET = 14
 const COLUMNS = 72 // the terminal's body width in the demo
 
 // Claude Code's dark theme.
@@ -46,14 +46,12 @@ const PAD = 16
 
 const barColor = (percent: number) => (percent >= 85 ? THEME.error : percent >= 60 ? THEME.warning : THEME.success)
 
-const countdown = (seconds: number): string => {
+const countdown = (seconds: number, withDays: boolean): string => {
   const total = Math.max(0, seconds)
-  const days = Math.floor(total / 86400)
-  if (days > 0) return `${days}d ${Math.floor((total % 86400) / 3600)}h`
-  const h = Math.floor(total / 3600)
+  const two = (n: number) => String(n).padStart(2, '0')
   const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  if (withDays) return `${two(Math.floor(total / 86400))}d-${two(Math.floor((total % 86400) / 3600))}h-${two(m)}m`
+  return `${two(Math.floor(total / 3600))}h-${two(m)}m-${two(total % 60)}s`
 }
 
 type Scene = { pose: Pose; title: string; trigger: string; sevenDay: number; fiveHour: number }
@@ -138,7 +136,7 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
       runs(col + LABEL + barWidth, row, [
         { text: ` ${String(Math.round(percent)).padStart(3)}%`, color: THEME.text },
         { text: ' ↻ ', color: THEME.dim },
-        { text: countdown(resetIn - elapsed).padStart(RESET - 3), color: THEME.text, bold: true },
+        { text: countdown(resetIn - elapsed, label === '7d').padStart(RESET - 3), color: THEME.text, bold: true },
       ])
     )
   }
@@ -179,15 +177,6 @@ const gif = (name: string, svgs: string[]) => {
   execFileSync('magick', ['-delay', String(FRAME_MS / 10), '-loop', '0', ...pngs, '-layers', 'Optimize', join(OUT, `${name}.gif`)])
 }
 
-// One GIF per pose: 12 frames (4.8 s) is a whole number of loops for every pose.
-const FRAMES_PER_POSE = 12
-for (const scene of SCENES) {
-  gif(
-    scene.pose,
-    Array.from({ length: FRAMES_PER_POSE }, (_, f) => band(scene, f, f * FRAME_MS)),
-  )
-}
-
 // The tour: every pose in turn, with a note under the band naming what raises it.
 const TOUR_FRAMES = 6
 const tour: string[] = []
@@ -200,4 +189,4 @@ SCENES.forEach((scene, s) => {
 gif('tour', tour)
 
 rmSync(work, { recursive: true, force: true })
-console.log(`wrote ${SCENES.length + 1} GIFs to ${OUT}/`)
+console.log(`wrote ${OUT}/tour.gif`)

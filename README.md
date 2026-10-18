@@ -7,15 +7,26 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 ## The band
 
 ```
- ┌ sprite ┐  7d ███████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  26% ↻   4d 7h
- │ 12 × 3 │  5h ███████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  38% ↻ 2:14:09
+ ┌ sprite ┐  7d ███████████░░░░░░░░░░░░░░░░░░░░░░░░░░░  26% ↻ 04d-07h-31m
+ │ 12 × 3 │  5h ███████████████░░░░░░░░░░░░░░░░░░░░░░░  38% ↻ 02h-14m-09s
  Opus 5.5 high
 ```
 
 - **Sprite**: Clawd, drawn with kitty's graphics protocol at 12 columns by 3 rows, in stop-motion (a few frames, each held for 400 ms). It is the only thing that moves: the mod replaces Claude Code's own spinner with an empty box.
 - **Model and effort**: the session's model, shortened (`claude-opus-5-5` becomes `Opus 5.5`), with the reasoning effort beside it.
 - **Usage bars**: `7d` is the weekly window, `5h` the five-hour window. Each bar turns from green to amber at 60% and to red at 85%.
-- **Countdown**: the time to each window's reset, `h:mm:ss` under a day, `Nd Nh` beyond. A window whose reset has passed drops to 0% straight away.
+- **Countdown**: the time to each window's reset, `04d-07h-31m` for the weekly window and `02h-14m-09s` for the five-hour one. Both are 11 characters wide, so they line up under each other. Until a window has a reading, its line shows `--d---h---m` or `--h---m---s`.
+
+### Where the numbers come from
+
+The percentages and reset times are the same ones `/usage` shows. The band keeps them current in four ways:
+
+1. **At startup, `/clear` and `/new`:** it shows the last reading it saved, then asks Claude Code for its own. A fresh session has none yet, so the band asks your account once (see [Privacy](#privacy)).
+2. **When a window moves:** Claude Code reads the limits from the response headers of every request and tells the band whenever a window moves by a whole point.
+3. **After every turn:** the band reads Claude Code's latest figures again, so a new reset time shows even when the percentage did not move (a window that reset and started over at the same rounded percent).
+4. **When a reset time passes:** the window drops to 0% and its countdown to dashes straight away. Five seconds later the band asks your account for the next window, so the countdown fills without waiting for a reply. If the account has no new reset time yet, it asks again once a minute, five times at most; after that the next reply fills it.
+
+While a session sits idle, nothing else updates the bars, so use on claude.ai or another device shows up after the next reply.
 
 ## Every pose
 
@@ -25,61 +36,43 @@ The pose follows Claude's current step: thinking, replying, or the tool it is ca
 
 Nothing running. Clawd stands and blinks now and then.
 
-<img src="docs/demo/idle.gif" alt="clawd-band, idle pose">
-
 ### thinking
 
 The model is thinking. A hand scratches the head while a thought bubble rises.
-
-<img src="docs/demo/thinking.gif" alt="clawd-band, thinking pose">
 
 ### working
 
 The model is replying, or calls any tool not listed below (`TodoWrite`, an MCP tool, …). Both arms pump.
 
-<img src="docs/demo/working.gif" alt="clawd-band, working pose">
-
 ### reading
 
 `Read`, `Grep`, `Glob`, `LS`, `NotebookRead`, `ToolSearch`, and the Claude Docs connector's `read`, `query` and `guide`. Clawd holds up a book, the eyes run along the line, and a page turns.
-
-<img src="docs/demo/reading.gif" alt="clawd-band, reading pose">
 
 ### writing
 
 `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and every other Claude Docs tool (`create`, `update`, `batch`, …). A pencil leaves a line of ink.
 
-<img src="docs/demo/writing.gif" alt="clawd-band, writing pose">
-
 ### running
 
 `Bash`, `BashOutput`, `KillShell`, `TaskStop`. A stride and a bounce, with speed lines.
-
-<img src="docs/demo/running.gif" alt="clawd-band, running pose">
 
 ### searching
 
 `WebFetch`, `WebSearch`. A magnifying glass, held up on one side and then the other.
 
-<img src="docs/demo/searching.gif" alt="clawd-band, searching pose">
-
 ### delegating
 
 `Agent`, `Task`, `SendMessage`, `Workflow`, `Skill`. Clawd waves a small Clawd off on its errand.
-
-<img src="docs/demo/delegating.gif" alt="clawd-band, delegating pose">
 
 ### questioning
 
 `AskUserQuestion`. A "?" bobs beside the head while Claude writes the question.
 
-<img src="docs/demo/questioning.gif" alt="clawd-band, questioning pose">
-
 While an `AskUserQuestion` menu is open, Claude Code hides the band. The mod also swaps the sprite for Claude Code's text logo and stops animating until the menu closes, so a kitty image can't cover the menu.
 
-### About these demos
+### About the demo
 
-kitty's graphics protocol draws the sprite as an image on its own layer, and terminal recorders such as asciinema record only the text stream, so a recording would show the bars with no Clawd. The GIFs above are therefore rendered by [`scripts/render-demo.ts`](scripts/render-demo.ts) from the mod's own frame data (`hooks/sprite.ts`). The script uses the band's layout from `hooks/register.tsx` and Claude Code's dark-theme colours. To re-render them:
+kitty's graphics protocol draws the sprite as an image on its own layer, and terminal recorders such as asciinema record only the text stream, so a recording would show the bars with no Clawd. The GIF at the top is therefore rendered by [`scripts/render-demo.ts`](scripts/render-demo.ts) from the mod's own frame data (`hooks/sprite.ts`). The script uses the band's layout from `hooks/register.tsx` and Claude Code's dark-theme colours. To re-render it:
 
 ```sh
 node scripts/render-demo.ts   # needs node 23.6+, rsvg-convert and ImageMagick
@@ -145,7 +138,7 @@ This section is clawd-band's privacy policy: what the mod reads, stores and send
 
 **The one host it contacts is `api.anthropic.com`, with one request:** `GET https://api.anthropic.com/api/oauth/usage` (`hooks/register.tsx`, `fetchAccountUsage`).
 
-- **When:** once at the start of a session, and again after `/clear`, but only if Claude Code has no rate-limit reading yet. Usually a reading already exists, because Claude Code records it from the response headers of its own requests, and then nothing is fetched.
+- **When:** once at the start of a session, and again after `/clear` or `/new`, but only if Claude Code has no rate-limit reading yet; and when a window's reset time passes, five seconds later and then once a minute, at most five times, until the account reports the next window. Otherwise Claude Code's own reading from the response headers of its requests is used and nothing is fetched.
 - **What is sent:** the request carries your own claude.ai sign-in, which Claude Code attaches through `$.session.authorize()` (the mod never sees the token), and the header `anthropic-beta: oauth-2025-04-20`. It has no body. Nothing from the conversation, your files or your settings is sent.
 - **What comes back:** your five-hour and weekly usage percentages and reset times. This is the same data `/usage` shows. An API-key session makes no request.
 
@@ -163,14 +156,14 @@ No telemetry, no analytics, no third parties, no other network calls, and no fil
 
 ## Development
 
-`scripts/` holds two developer tools that the plugin never runs. `render-demo.ts` writes the demo GIFs in `docs/demo/`, and `render-icon.ts` writes `.claude-plugin/icon.png`. Both are run by hand with node, and both write images; neither reads or runs one.
+`scripts/` holds two developer tools that the plugin never runs. `render-demo.ts` writes the demo GIF, `docs/demo/tour.gif`, and `render-icon.ts` writes `.claude-plugin/icon.png`. Both are run by hand with node, and both write images; neither reads or runs one.
 
 ```sh
 claude plugin validate .
 claude plugin test .
 ```
 
-`claude plugin test` runs `hooks/band.test.tsx`: pose mapping, usage parsing and merging, countdowns and colours, whole RGBA frames, the band's content, the survey case, a `/clear` reload, and the options (checking, the model line, bar and sprite colours). Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
+`claude plugin test` runs `hooks/band.test.tsx`: pose mapping, usage parsing and merging, the reset time read after each turn, the fetch when a reset passes and its five-try limit, countdowns and colours, whole RGBA frames, the band's content, the survey case, a `/clear` reload, and the options (checking, the model line, bar and sprite colours). Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
 
 ## Credits
 

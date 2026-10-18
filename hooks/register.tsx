@@ -14,7 +14,7 @@ const SPRITE_ROWS = 3
 const FRAME_MS = 400 // stop-motion: a few frames, each held
 const LABEL = 3 // "7d "
 const PERCENT = 5 // " 100%"
-const RESET = 10 // " ↻ 4:59:59" or " ↻  6d 23h"
+const RESET = 14 // " ↻ 06d-23h-59m" or " ↻ 04h-59m-59s": one width for both bars
 const DOCS_PREFIX = 'mcp__claude_ai_Claude_Docs__'
 
 const READING = ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'ToolSearch']
@@ -43,16 +43,16 @@ const toWindow = (limits: readonly SessionRateLimit[], kind: string): Window | n
 export const toUsage = (limits: readonly SessionRateLimit[]): Usage | null =>
   limits.length === 0 ? null : { fiveHour: toWindow(limits, 'five_hour'), sevenDay: toWindow(limits, 'seven_day') }
 
-export const countdown = (resetsAt: string | null | undefined, now: number): string => {
-  if (!resetsAt) return '-:--:--'
+// The weekly window as `06d-18h-44m`, the five-hour one as `03h-33m-24s`: the
+// same width, so the two countdowns line up under each other.
+export const countdown = (resetsAt: string | null | undefined, now: number, withDays = false): string => {
+  if (!resetsAt) return withDays ? '--d---h---m' : '--h---m---s'
   const total = Math.max(0, Math.floor((Date.parse(resetsAt) - now) / 1000))
-  const days = Math.floor(total / 86400)
-  if (days > 0) return `${days}d ${Math.floor((total % 86400) / 3600)}h`
-  // Not `h`: in a .tsx file that name is the JSX factory.
-  const hours = Math.floor(total / 3600)
+  const two = (n: number) => String(n).padStart(2, '0')
   const minutes = Math.floor((total % 3600) / 60)
-  const seconds = total % 60
-  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  // Not `h`: in a .tsx file that name is the JSX factory.
+  if (withDays) return `${two(Math.floor(total / 86400))}d-${two(Math.floor((total % 86400) / 3600))}h-${two(minutes)}m`
+  return `${two(Math.floor(total / 3600))}h-${two(minutes)}m-${two(total % 60)}s`
 }
 
 // "claude-opus-5-5" -> "Opus 5.5"; a name already shown as words is kept.
@@ -90,11 +90,30 @@ export const mergeUsage = (current: Usage | null | undefined, limits: readonly S
   return { fiveHour: fresh.fiveHour ?? current?.fiveHour ?? null, sevenDay: fresh.sevenDay ?? current?.sevenDay ?? null }
 }
 
+const sameWindow = (a: Window | null | undefined, b: Window | null | undefined) =>
+  (a?.percentUsed ?? null) === (b?.percentUsed ?? null) && (a?.resetsAt ?? null) === (b?.resetsAt ?? null)
+
+export const sameUsage = (a: Usage | null | undefined, b: Usage | null | undefined): boolean =>
+  sameWindow(a?.fiveHour, b?.fiveHour) && sameWindow(a?.sevenDay, b?.sevenDay)
+
 async function setUsage($: EngineInterface, limits: readonly SessionRateLimit[]) {
   if (limits.length === 0) return
   let merged: Usage | null = null
-  await update($, usageAtom, (current: Usage | null | undefined) => (merged = mergeUsage(current, limits)))
+  await update($, usageAtom, (current: Usage | null | undefined) => {
+    const next = mergeUsage(current, limits)
+    // An unchanged reading leaves the atom and the store alone.
+    if (sameUsage(current, next)) return current ?? null
+    return (merged = next)
+  })
   if (merged) await $.store.set('usage', merged)
+}
+
+// session.measure is raised only when a window moves a whole point, so a new
+// reset time at the same percent (a window that reset and started again) never
+// reaches it: after each turn the band reads the session's latest reading too.
+async function refreshUsage($: EngineInterface) {
+  const { rateLimits } = await $.session.usage()
+  await setUsage($, rateLimits)
 }
 
 // The person's userConfig values (plugin.json), checked: a colour that is not
@@ -155,6 +174,9 @@ const live: {
   isStarted: boolean
   isAsking: boolean
   sessionId: string | null
+  resetKey: string | null
+  resetTries: number
+  resetAt: number
 } = {
   pose: 'idle',
   isWorking: false,
@@ -163,6 +185,9 @@ const live: {
   isStarted: false,
   isAsking: false,
   sessionId: null,
+  resetKey: null,
+  resetTries: 0,
+  resetAt: 0,
 }
 
 const shown = (): Pose => (live.isWorking ? live.pose : 'idle')
@@ -220,6 +245,37 @@ async function fetchAccountUsage($: EngineInterface): Promise<SessionRateLimit[]
   return res.ok ? parseAccountUsage(res.text) : []
 }
 
+// The reset times of the windows that have run out, joined: what one fetch on
+// reset answers. Null while every window still has time left.
+export const expiredKey = (usage: Usage | null | undefined, now: number): string | null => {
+  const gone = [usage?.fiveHour?.resetsAt, usage?.sevenDay?.resetsAt].filter(
+    (r): r is string => !!r && Date.parse(r) <= now,
+  )
+  return gone.length > 0 ? gone.join() : null
+}
+
+const RESET_FIRST_MS = 5_000 // the account has rolled the window over by then
+const RESET_RETRY_MS = 60_000
+const RESET_TRIES = 5
+
+// A window that runs out mid-session: ask the account for the next one, so the
+// countdown fills without waiting for a reply. Until a new reset time arrives,
+// once a minute, five times at most; then the next reply fills it as before.
+async function fetchOnReset($: EngineInterface) {
+  const now = await $.clock.now()
+  const key = expiredKey(await read($, usageAtom), now)
+  if (!key) return
+  if (key !== live.resetKey) {
+    live.resetKey = key
+    live.resetTries = 0
+    live.resetAt = now - RESET_RETRY_MS + RESET_FIRST_MS
+  }
+  if (live.resetTries >= RESET_TRIES || now - live.resetAt < RESET_RETRY_MS) return
+  live.resetTries += 1
+  live.resetAt = now
+  await setUsage($, await fetchAccountUsage($).catch(() => []))
+}
+
 // Rate limits come from response headers and effort from the turn, so a fresh
 // session has neither until its first reply: start from the last ones seen,
 // then ask the account for both windows as they stand now.
@@ -264,6 +320,7 @@ function ensureStarted($: EngineInterface) {
   $.clock.every(FRAME_MS, () => tick($))
   $.clock.every(1000, () => {
     loadSession($).catch(() => undefined)
+    fetchOnReset($).catch(() => undefined)
     if (!live.isAsking) $.ui.invalidate('ui.render')
   })
   $.clock.after(0, () => {
@@ -333,6 +390,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     await setPose($, 'idle')
+    await refreshUsage($).catch(() => undefined)
     return next(e)
   })
 
@@ -367,7 +425,7 @@ export const register: Register = (on, options) => {
     const left = config.showModel ? Math.max(SPRITE_COLUMNS + 1, caption.length) : SPRITE_COLUMNS + 1
     const barWidth = Math.max(4, e.props.bodyColumns - left - 1 - LABEL - PERCENT - RESET)
 
-    const bar = (label: string, window: Window | null | undefined) => {
+    const bar = (label: string, window: Window | null | undefined, withDays = false) => {
       const percent = window?.percentUsed ?? 0
       const filled = Math.min(barWidth, Math.round((percent / 100) * barWidth))
       return (
@@ -377,7 +435,7 @@ export const register: Register = (on, options) => {
           <Text color={config.empty}>{'░'.repeat(barWidth - filled)}</Text>
           <Text dimColor={!window}>{window ? ` ${String(Math.round(percent)).padStart(3)}%` : '   --'}</Text>
           <Text dimColor> ↻ </Text>
-          <Text bold={!!window?.resetsAt}>{countdown(window?.resetsAt, now).padStart(RESET - 3)}</Text>
+          <Text bold={!!window?.resetsAt}>{countdown(window?.resetsAt, now, withDays).padStart(RESET - 3)}</Text>
         </Box>
       )
     }
@@ -410,7 +468,7 @@ export const register: Register = (on, options) => {
           ) : null}
         </Box>
         <Box flexDirection="column" marginLeft={1}>
-          {bar('7d', usage?.sevenDay)}
+          {bar('7d', usage?.sevenDay, true)}
           {bar('5h', usage?.fiveHour)}
         </Box>
       </Box>

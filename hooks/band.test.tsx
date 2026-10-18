@@ -3,10 +3,12 @@ import { expect, mock, test } from 'claude-code/testing'
 import {
   barColor,
   countdown,
+  expiredKey,
   mergeUsage,
   parseAccountUsage,
   poseFor,
   resetExpired,
+  sameUsage,
   settings,
   shortModel,
   toUsage,
@@ -51,10 +53,12 @@ test('model names are shortened', async () => {
 
 test('countdown and colours', async () => {
   const now = Date.parse('2026-10-11T15:00:00Z')
-  expect(countdown('2026-10-11T18:04:05Z', now)).toBe('3:04:05')
-  expect(countdown('2026-10-11T14:00:00Z', now)).toBe('0:00:00')
-  expect(countdown(null, now)).toBe('-:--:--')
-  expect(countdown('2026-10-14T19:30:00Z', now)).toBe('3d 4h')
+  expect(countdown('2026-10-11T18:04:05Z', now)).toBe('03h-04m-05s')
+  expect(countdown('2026-10-11T14:00:00Z', now)).toBe('00h-00m-00s')
+  expect(countdown(null, now)).toBe('--h---m---s')
+  expect(countdown(null, now, true)).toBe('--d---h---m')
+  expect(countdown('2026-10-14T19:30:00Z', now, true)).toBe('03d-04h-30m')
+  expect(countdown('2026-10-14T19:30:00Z', now, true).length).toBe(countdown('2026-10-11T18:04:05Z', now).length)
   const defaults = settings({})
   expect(barColor(10, defaults)).toBe('success')
   expect(barColor(60, defaults)).toBe('warning')
@@ -184,6 +188,103 @@ test('a reading missing a window keeps the last one', async () => {
   expect(merged?.fiveHour).toEqual(current.fiveHour)
   expect(merged?.sevenDay?.percentUsed).toBe(33)
   expect(mergeUsage(current, [])).toEqual(current)
+})
+
+test('readings compare by percent and reset time', async () => {
+  const usage = {
+    fiveHour: { percentUsed: 1, resetsAt: '2026-10-11T14:00:00Z' },
+    sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
+  }
+  expect(sameUsage(usage, { ...usage })).toBe(true)
+  expect(sameUsage(usage, { ...usage, fiveHour: { percentUsed: 1, resetsAt: '2026-10-11T19:00:00Z' } })).toBe(false)
+  expect(sameUsage(null, usage)).toBe(false)
+  expect(sameUsage(null, undefined)).toBe(true)
+})
+
+test('a new reset time at the same percent shows after the turn', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  mock.store(on)
+  let resetsAt = '2026-10-11T14:00:00Z'
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.authorize', () => ({ deny: 'no account in a test' }))
+  on('session.usage', () => ({ value: { rateLimits: [{ kind: 'five_hour', percentUsed: 1, resetsAt }] } }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.render', () => null)
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1)
+  expect(await ui.find({ type: 'Text', text: '--h---m---s' })).toBeDefined()
+  // The window reset and a request opened a new one, still at 1%: no session.measure.
+  resetsAt = '2026-10-11T19:00:00Z'
+  await $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 'turn-1', reason: 'answer' })
+  await clock.advance(1000)
+  expect(await ui.find({ type: 'Text', text: /^03h-59m-5\ds$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('expired windows make the key one fetch on reset answers', async () => {
+  const now = Date.parse('2026-10-11T15:00:00Z')
+  const usage = {
+    fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T14:00:00Z' },
+    sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
+  }
+  expect(expiredKey(usage, now)).toBe('2026-10-11T14:00:00Z')
+  expect(expiredKey({ ...usage, fiveHour: { percentUsed: 0, resetsAt: null } }, now)).toBe(null)
+  expect(expiredKey(null, now)).toBe(null)
+})
+
+const accountUsage = (fiveHour: string | null) =>
+  JSON.stringify({
+    five_hour: fiveHour ? { utilization: 1, resets_at: fiveHour } : null,
+    seven_day: { utilization: 31, resets_at: '2026-10-14T00:00:00Z' },
+  })
+
+test('a window that runs out mid-session is fetched again, no reply needed', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  mock.store(on)
+  let next: string | null = '2026-10-11T15:00:10Z'
+  let fetches = 0
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { rateLimits: [] } }))
+  on('session.authorize', () => ({ value: { kind: 'bearer', handle: 'test' } }))
+  on('http.fetch', () => {
+    fetches += 1
+    return { value: { status: 200, ok: true, headers: {}, text: accountUsage(next) } }
+  })
+  on('ui.render', () => null)
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1)
+  expect(fetches).toBe(1) // the startup fetch
+  // The window runs out at 15:00:10; the account has the next one 5 s later.
+  next = '2026-10-11T20:00:10Z'
+  await clock.advance(16_000)
+  expect(fetches).toBe(2)
+  expect(await ui.find({ type: 'Text', text: /^04h-59m-5\ds$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a fetch on reset gives up after five tries', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  mock.store(on)
+  let next: string | null = '2026-10-11T15:00:10Z'
+  let fetches = 0
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { rateLimits: [] } }))
+  on('session.authorize', () => ({ value: { kind: 'bearer', handle: 'test' } }))
+  on('http.fetch', () => {
+    fetches += 1
+    return { value: { status: 200, ok: true, headers: {}, text: accountUsage(next) } }
+  })
+  on('ui.render', () => null)
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1)
+  // No new window opens (nothing is sent): the account has no five-hour window.
+  next = null
+  await clock.advance(30 * 60_000)
+  expect(fetches).toBe(1 + 5)
+  await ui.unmount()
 })
 
 test('the account usage response gives both windows', async () => {
