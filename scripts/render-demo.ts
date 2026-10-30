@@ -1,5 +1,6 @@
 // Renders the README demo: a tour of every pose inside the whole band (sprite,
-// model caption, both usage bars, reset countdowns), as one GIF.
+// model caption, both usage bars with their reset countdowns, the context bar
+// with its cache countdown), as one GIF at twice the cell size.
 //
 // The sprite is drawn through kitty's graphics protocol, which terminal
 // recorders such as asciinema do not capture, so the demos are drawn here from
@@ -37,7 +38,10 @@ const THEME = {
   warning: 'rgb(255,193,7)',
   error: 'rgb(255,107,128)',
   note: 'rgb(110,110,118)',
+  cold: 'rgb(97,160,255)',
 }
+
+const ZOOM = 2 // rsvg-convert's zoom: the GIF at twice the drawn size
 
 const CELL_W = 12
 const CELL_H = 24
@@ -54,25 +58,38 @@ const countdown = (seconds: number, withDays: boolean): string => {
   return `${two(Math.floor(total / 3600))}h-${two(m)}m-${two(total % 60)}s`
 }
 
-type Scene = { pose: Pose; title: string; trigger: string; sevenDay: number; fiveHour: number }
+type Scene = {
+  pose: Pose
+  title: string
+  trigger: string
+  sevenDay: number
+  fiveHour: number
+  context: number
+  isCold?: boolean
+}
 
-// One scene per pose; the usage figures vary so the bar colours show too.
+// One scene per pose; the usage figures vary so the bar colours show too. The
+// last one has sat idle past the cache lifetime.
 const SCENES: Scene[] = [
-  { pose: 'idle', title: 'idle', trigger: 'nothing running: stands, blinks now and then', sevenDay: 23, fiveHour: 12 },
-  { pose: 'thinking', title: 'thinking', trigger: 'the model is thinking: scratches its head', sevenDay: 23, fiveHour: 18 },
-  { pose: 'working', title: 'working', trigger: 'replying, or any other tool call: arms pumping', sevenDay: 24, fiveHour: 27 },
-  { pose: 'reading', title: 'reading', trigger: 'Read, Grep, Glob, ToolSearch, Claude Docs read/query/guide', sevenDay: 26, fiveHour: 38 },
-  { pose: 'writing', title: 'writing', trigger: 'Edit, Write, NotebookEdit, Claude Docs edits', sevenDay: 31, fiveHour: 52 },
-  { pose: 'running', title: 'running', trigger: 'Bash, BashOutput, KillShell, TaskStop', sevenDay: 34, fiveHour: 64 },
-  { pose: 'searching', title: 'searching', trigger: 'WebFetch, WebSearch', sevenDay: 36, fiveHour: 73 },
-  { pose: 'delegating', title: 'delegating', trigger: 'Agent, Task, SendMessage, Workflow, Skill', sevenDay: 39, fiveHour: 86 },
-  { pose: 'questioning', title: 'questioning', trigger: 'AskUserQuestion: a "?" bobs beside it', sevenDay: 41, fiveHour: 91 },
+  { pose: 'idle', title: 'idle', trigger: 'nothing running: stands, blinks now and then', sevenDay: 23, fiveHour: 12, context: 8 },
+  { pose: 'thinking', title: 'thinking', trigger: 'the model is thinking: scratches its head', sevenDay: 23, fiveHour: 18, context: 11 },
+  { pose: 'working', title: 'working', trigger: 'replying, or any other tool call: arms pumping', sevenDay: 24, fiveHour: 27, context: 15 },
+  { pose: 'reading', title: 'reading', trigger: 'Read, Grep, Glob, ToolSearch, Claude Docs read/query/guide', sevenDay: 26, fiveHour: 38, context: 22 },
+  { pose: 'writing', title: 'writing', trigger: 'Edit, Write, NotebookEdit, Claude Docs edits', sevenDay: 31, fiveHour: 52, context: 30 },
+  { pose: 'running', title: 'running', trigger: 'Bash, BashOutput, KillShell, TaskStop', sevenDay: 34, fiveHour: 64, context: 41 },
+  { pose: 'searching', title: 'searching', trigger: 'WebFetch, WebSearch', sevenDay: 36, fiveHour: 73, context: 55 },
+  { pose: 'delegating', title: 'delegating', trigger: 'Agent, Task, SendMessage, Workflow, Skill', sevenDay: 39, fiveHour: 86, context: 63 },
+  { pose: 'questioning', title: 'questioning', trigger: 'AskUserQuestion: a "?" bobs beside it', sevenDay: 41, fiveHour: 91, context: 68 },
+  { pose: 'idle', title: 'cache cold', trigger: 'an hour since the last reply: no cache left', sevenDay: 41, fiveHour: 91, context: 68, isCold: true },
 ]
 
 const MODEL = 'Opus 5.5'
 const EFFORT = 'high'
 const FIVE_HOUR_RESET = 2 * 3600 + 14 * 60 + 9
 const SEVEN_DAY_RESET = 4 * 86400 + 7 * 3600 + 31 * 60
+const CACHE_LEFT = 59 * 60 + 58
+const WINDOW = '1m'
+const DAYS = 7
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -94,13 +111,28 @@ const runs = (col: number, row: number, parts: Run[]): string => {
   return out
 }
 
-// Block characters drawn as cells, so the bars meet edge to edge as in kitty.
+// Block characters drawn as cells, so the bars meet edge to edge as in kitty;
+// the empty part is `░`'s dot grid, as kitty draws the light shade.
 const cells = (col: number, row: number, count: number, color: string, shade = false): string => {
   if (count <= 0) return ''
   const x = col * CELL_W
   const y = row * CELL_H
-  if (!shade) return `<rect x="${x}" y="${y + 2}" width="${count * CELL_W}" height="${CELL_H - 4}" fill="${color}"/>`
-  return `<rect x="${x}" y="${y + 2}" width="${count * CELL_W}" height="${CELL_H - 4}" fill="${color}" fill-opacity="0.28"/>`
+  const fill = shade ? 'url(#shade)' : color
+  return `<rect x="${x}" y="${y}" width="${count * CELL_W}" height="${CELL_H}" fill="${fill}"/>`
+}
+
+// The day cuts of the weekly bar, as hooks/register.tsx draws them: in the
+// fill `▉` (a thin gap at the cell's right edge), in the empty part a thin `│`.
+const cuts = (col: number, row: number, width: number, filled: number): string => {
+  let out = ''
+  for (let i = 1; i < DAYS; i++) {
+    const cell = Math.round((i * width) / DAYS)
+    const x = (col + cell) * CELL_W
+    const y = row * CELL_H
+    if (cell < filled) out += `<rect x="${x + (CELL_W * 7) / 8}" y="${y}" width="${CELL_W / 8}" height="${CELL_H}" fill="${THEME.background}"/>`
+    else out += `<rect x="${x}" y="${y}" width="${CELL_W}" height="${CELL_H}" fill="${THEME.background}"/><rect x="${x + CELL_W / 2 - 0.75}" y="${y}" width="1.5" height="${CELL_H}" fill="${THEME.text}"/>`
+  }
+  return out
 }
 
 const sprite = (rgbaBase64: string, col: number, row: number): string => {
@@ -126,17 +158,18 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
   const elapsed = Math.floor(elapsedMs / 1000)
   const frames = FRAMES[scene.pose]
 
-  const bar = (row: number, label: string, percent: number, resetIn: number) => {
+  const bar = (row: number, label: string, percent: number, glyph: string, timer: string, color?: string) => {
     const col = left + 1
     const filled = Math.min(barWidth, Math.round((percent / 100) * barWidth))
     return (
       runs(col, row, [{ text: `${label} `, color: THEME.dim }]) +
-      cells(col + LABEL, row, filled, barColor(percent)) +
+      cells(col + LABEL, row, filled, color ?? barColor(percent)) +
       cells(col + LABEL + filled, row, barWidth - filled, THEME.inactive, true) +
+      (label === '7d' ? cuts(col + LABEL, row, barWidth, filled) : '') +
       runs(col + LABEL + barWidth, row, [
         { text: ` ${String(Math.round(percent)).padStart(3)}%`, color: THEME.text },
-        { text: ' ↻ ', color: THEME.dim },
-        { text: countdown(resetIn - elapsed, label === '7d').padStart(RESET - 3), color: THEME.text, bold: true },
+        { text: ` ${glyph} `, color: THEME.dim },
+        { text: timer.padStart(RESET - 3), color: color ?? THEME.text, bold: true },
       ])
     )
   }
@@ -151,11 +184,17 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
       { text: MODEL, color: THEME.text, bold: true },
       { text: ` ${EFFORT}`, color: THEME.dim },
     ]) +
-    bar(1, '7d', scene.sevenDay, SEVEN_DAY_RESET) +
-    bar(2, '5h', scene.fiveHour, FIVE_HOUR_RESET) +
+    bar(1, '7d', scene.sevenDay, '↻', countdown(SEVEN_DAY_RESET - elapsed, true)) +
+    bar(2, '5h', scene.fiveHour, '↻', countdown(FIVE_HOUR_RESET - elapsed, false)) +
+    (scene.isCold
+      ? bar(3, WINDOW, scene.context, '❄', 'cold', THEME.cold)
+      : bar(3, WINDOW, scene.context, '☀', countdown(CACHE_LEFT - elapsed, false))) +
     (note ? runs(0, 5, [{ text: note, color: THEME.note }]) : '')
 
+  // The light shade: one dot in each 2 × 2 of a 6 × 6 grid per cell.
+  const dot = CELL_W / 6
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+<defs><pattern id="shade" width="${dot * 2}" height="${dot * 2}" patternUnits="userSpaceOnUse"><rect width="${dot}" height="${dot}" fill="${THEME.inactive}"/></pattern></defs>
 <rect width="100%" height="100%" rx="10" fill="${THEME.background}"/>
 <g transform="translate(${PAD},${PAD})" font-family="${FONT}" font-size="20" shape-rendering="crispEdges">${body}</g>
 </svg>`
@@ -170,7 +209,7 @@ const gif = (name: string, svgs: string[]) => {
     const svgPath = join(work, `${name}-${String(i).padStart(3, '0')}.svg`)
     const pngPath = svgPath.replace(/\.svg$/, '.png')
     writeFileSync(svgPath, svg)
-    execFileSync('rsvg-convert', ['-o', pngPath, svgPath])
+    execFileSync('rsvg-convert', ['-z', String(ZOOM), '-o', pngPath, svgPath])
     return pngPath
   })
   // Frames are held FRAME_MS each; GIF delays are in hundredths of a second.
