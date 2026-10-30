@@ -2,6 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   barColor,
+  barRuns,
+  cacheCountdown,
   countdown,
   expiredKey,
   mergeUsage,
@@ -12,6 +14,8 @@ import {
   settings,
   shortModel,
   toUsage,
+  windowLabel,
+  withoutEffort,
 } from './register'
 import { ART_HEIGHT, ART_WIDTH, CLAUDE_ORANGE, FRAMES, framesFor, PIXEL_HEIGHT, PIXEL_WIDTH, SCALE } from './sprite'
 
@@ -63,6 +67,52 @@ test('countdown and colours', async () => {
   expect(barColor(10, defaults)).toBe('success')
   expect(barColor(60, defaults)).toBe('warning')
   expect(barColor(85, defaults)).toBe('error')
+})
+
+test('the context row: window label and cache countdown', async () => {
+  expect(windowLabel(1_000_000)).toBe('1m')
+  expect(windowLabel(200_000)).toBe('200k')
+  expect(windowLabel(undefined)).toBe('cx')
+  const now = Date.parse('2026-10-11T15:00:00Z')
+  const hour = settings({}).cacheTtlMs
+  expect(hour).toBe(3_600_000)
+  expect(settings({ cache_ttl: '5m' }).cacheTtlMs).toBe(300_000)
+  expect(cacheCountdown(null, hour, now)).toBe('--h---m---s')
+  expect(cacheCountdown(now - 48_000, hour, now)).toBe('00h-59m-12s')
+  expect(cacheCountdown(now - hour, hour, now)).toBe('cold')
+  expect(settings({}).cold).toBe('blue')
+})
+
+test('the effort pill leaves the hint line', async () => {
+  expect(withoutEffort('● high · /effort')).toBe('')
+  expect(withoutEffort('? for shortcuts · ● xhigh · /effort')).toBe('? for shortcuts')
+  expect(withoutEffort('● max · /effort · ? for shortcuts')).toBe('? for shortcuts')
+  expect(withoutEffort('esc to interrupt')).toBe(null)
+})
+
+test('the weekly bar is cut into seven days', async () => {
+  const runs = barRuns(35, 12, 7)
+  const cells = runs.map(r => r.text).join('')
+  expect(cells.length).toBe(35)
+  expect([...cells].filter(c => c === '▉').length + runs.filter(r => r.part === 'mark').length).toBe(6)
+  expect(runs[0]).toEqual({ text: '█████▉████▉█', part: 'filled' })
+  expect(runs[2]).toEqual({ text: '│', part: 'mark' })
+  expect(barRuns(10, 3)).toEqual([
+    { text: '███', part: 'filled' },
+    { text: '░░░░░░░', part: 'empty' },
+  ])
+})
+
+test('a cold cache turns the context row blue', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  on('session.usage', () => ({ value: { rateLimits: [], context: { window: 1_000_000, tokens: 120_000, percent: 12 } } }))
+  on('ui.render', () => null)
+  on('state.get', { key: 'cacheAt' }, () => ({ value: { value: Date.parse('2026-10-11T13:00:00Z'), version: 1 } }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1)
+  expect(await ui.find({ type: 'Text', text: /^1m/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /cold$/ }))?.props.color).toBe('blue')
+  await ui.unmount()
 })
 
 test('options are checked, a bad colour falls back to its default', async () => {
@@ -119,7 +169,7 @@ test('the band draws the sprite, both bars and the countdown', async ($, on) => 
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^5h/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' ↻ ' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'refresh-5h' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '--' })).toBeDefined()
   expect(await ui.find({ key: 'model' })).toBeDefined()
   await ui.unmount()
@@ -239,6 +289,31 @@ const accountUsage = (fiveHour: string | null) =>
     seven_day: { utilization: 31, resets_at: '2026-10-14T00:00:00Z' },
   })
 
+test('a click on ↻ asks the account, at most once in ten seconds', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  mock.store(on)
+  let fetches = 0
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { rateLimits: [] } }))
+  on('session.authorize', () => ({ value: { kind: 'bearer', handle: 'test' } }))
+  on('http.fetch', () => {
+    fetches += 1
+    return { value: { status: 200, ok: true, headers: {}, text: accountUsage('2026-10-11T18:00:00Z') } }
+  })
+  on('ui.render', () => null)
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1)
+  const atStart = fetches
+  await ui.press({ key: 'refresh-5h' })
+  await clock.advance(1)
+  expect(fetches).toBe(atStart + 1)
+  await ui.press({ key: 'refresh-7d' })
+  await clock.advance(1)
+  expect(fetches).toBe(atStart + 1)
+  await ui.unmount()
+})
+
 test('a window that runs out mid-session is fetched again, no reply needed', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
   mock.store(on)
@@ -336,6 +411,8 @@ test('at startup a cached 5h window that has reset shows 0%, not --', async ($, 
       sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
     },
   })
+  // A context reading too, so no row of the band reads `--`.
+  on('session.usage', () => ({ value: { rateLimits: [], context: { window: 1_000_000, tokens: 50_000, percent: 5 } } }))
   on('ui.render', () => null)
   const first = await $.ui.mount(BAND)
   await clock.advance(1)

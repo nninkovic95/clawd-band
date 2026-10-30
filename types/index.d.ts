@@ -17,6 +17,6 @@ export type Usage = { fiveHour: Window | null; sevenDay: Window | null }
 
 declare module 'claude-code' {
   interface PluginState {
-    'clawd-band': { pose: Pose; usage: Usage | null; model: Model }
+    'clawd-band': { pose: Pose; usage: Usage | null; model: Model; cacheAt: number | null }
   }
 }
