@@ -1,0 +1,39 @@
+# Keeps the clawd-band entry on Build with Claude current.
+# A push that changes the minor or major version opens or updates the one bump PR.
+# A manual run lists whatever version main has, so a patch goes out only by hand.
+name: Build with Claude listing
+
+on:
+  push:
+    branches: [main]
+    paths: ['.claude-plugin/plugin.json']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Show the change and the PR text without writing anything
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bwc-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.repository == 'nninkovic95/clawd-band' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Bump the listing
+        run: node .github/scripts/bwc-bump.mjs
+        env:
+          GH_TOKEN: ${{ secrets.BWC_TOKEN }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && 'manual' || 'auto' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '0' }}
+          PLUGIN_SHA: ${{ github.sha }}
