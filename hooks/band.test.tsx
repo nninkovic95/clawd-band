@@ -169,7 +169,9 @@ test('the band draws the sprite, both bars and the countdown', async ($, on) => 
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^5h/ })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'refresh-5h' })).toBeDefined()
+  // No refresh buttons and no row icons: the countdown follows the percent.
+  expect(await ui.find({ type: 'Button' })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /[↻☀❄]/ })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: '--' })).toBeDefined()
   expect(await ui.find({ key: 'model' })).toBeDefined()
   await ui.unmount()
@@ -288,31 +290,6 @@ const accountUsage = (fiveHour: string | null) =>
     five_hour: fiveHour ? { utilization: 1, resets_at: fiveHour } : null,
     seven_day: { utilization: 31, resets_at: '2026-10-14T00:00:00Z' },
   })
-
-test('a click on ↻ asks the account, at most once in ten seconds', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
-  mock.store(on)
-  let fetches = 0
-  on('session.id', () => ({ value: 'one' }))
-  on('session.model', () => ({ value: 'claude-opus-5-5' }))
-  on('session.usage', () => ({ value: { rateLimits: [] } }))
-  on('session.authorize', () => ({ value: { kind: 'bearer', handle: 'test' } }))
-  on('http.fetch', () => {
-    fetches += 1
-    return { value: { status: 200, ok: true, headers: {}, text: accountUsage('2026-10-11T18:00:00Z') } }
-  })
-  on('ui.render', () => null)
-  const ui = await $.ui.mount(BAND)
-  await clock.advance(1)
-  const atStart = fetches
-  await ui.press({ key: 'refresh-5h' })
-  await clock.advance(1)
-  expect(fetches).toBe(atStart + 1)
-  await ui.press({ key: 'refresh-7d' })
-  await clock.advance(1)
-  expect(fetches).toBe(atStart + 1)
-  await ui.unmount()
-})
 
 test('a window that runs out mid-session is fetched again, no reply needed', async ($, on) => {
   const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })

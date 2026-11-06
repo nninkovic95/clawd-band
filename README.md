@@ -7,16 +7,16 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 ## The band
 
 ```
- ┌ sprite ┐  7d ██████▉█████░│░░░░░│░░░░░│░░░░░│░░░░░│░░░░░  26% ↻ 04d-07h-31m
- │ 12 × 3 │  5h ███████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  38% ↻ 02h-14m-09s
- Opus 5.5 high 1m █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  12% ☀ 00h-47m-03s
+ ┌ sprite ┐  7d ██████▉█████░│░░░░░│░░░░░│░░░░░│░░░░░│░░░░░░░  26% 04d-07h-31m
+ │ 12 × 3 │  5h ███████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  38% 02h-14m-09s
+ Opus 5.5 high 1m █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  12% 00h-47m-03s
 ```
 
 - **Sprite**: Clawd, drawn with kitty's graphics protocol at 12 columns by 3 rows, in stop-motion (a few frames, each held for 400 ms). It is the only thing that moves: the mod replaces Claude Code's own spinner with an empty box.
 - **Model and effort**: the session's model, shortened (`claude-opus-5-5` becomes `Opus 5.5`), with the reasoning effort beside it.
 - **Usage bars**: `7d` is the weekly window, with a faint mark between each of its seven days, `5h` the five-hour window. Each bar turns from green to amber at 60% and to red at 85%.
-- **Context bar**: how full the context window is, the same figure as the status line's `used_percentage`, labelled with the window's size (`1m`, `200k`). Beside it, `☀` counts down until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses the icon becomes `❄` and the bar and the countdown turn blue and read `cold`; the next request re-sends the whole context at the cache-write price.
-- **Countdown**: the time to each window's reset, `04d-07h-31m` for the weekly window and `02h-14m-09s` for the five-hour one. Both are 11 characters wide, so they line up under each other. Until a window has a reading, its line shows `--d---h---m` or `--h---m---s`. Clicking a `↻` asks your account for both windows now (at most once in ten seconds); a toast says so when the account gives nothing.
+- **Context bar**: how full the context window is, the same figure as the status line's `used_percentage`, labelled with the window's size (`1m`, `200k`). Beside it, a countdown runs until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses the bar and the countdown turn blue and the countdown reads `cold`; the next request re-sends the whole context at the cache-write price.
+- **Countdown**: the time to each window's reset, `04d-07h-31m` for the weekly window and `02h-14m-09s` for the five-hour one. Both are 11 characters wide, so they line up under each other. Until a window has a reading, its line shows `--d---h---m` or `--h---m---s`.
 
 ### Where the numbers come from
 
@@ -141,7 +141,7 @@ This section is clawd-band's privacy policy: what the mod reads, stores and send
 
 **The one host it contacts is `api.anthropic.com`, with one request:** `GET https://api.anthropic.com/api/oauth/usage` (`hooks/register.tsx`, `fetchAccountUsage`).
 
-- **When:** once at the start of a session, and again after `/clear` or `/new`, but only if Claude Code has no rate-limit reading yet; and when a window's reset time passes, five seconds later and then once a minute, at most five times, until the account reports the next window; and when you click a `↻`, at most once in ten seconds. Otherwise Claude Code's own reading from the response headers of its requests is used and nothing is fetched.
+- **When:** once at the start of a session, and again after `/clear` or `/new`, but only if Claude Code has no rate-limit reading yet; and when a window's reset time passes, five seconds later and then once a minute, at most five times, until the account reports the next window. Otherwise Claude Code's own reading from the response headers of its requests is used and nothing is fetched.
 - **What is sent:** the request carries your own claude.ai sign-in, which Claude Code attaches through `$.session.authorize()` (the mod never sees the token), and the header `anthropic-beta: oauth-2025-04-20`. It has no body. Nothing from the conversation, your files or your settings is sent.
 - **What comes back:** your five-hour and weekly usage percentages and reset times. This is the same data `/usage` shows. An API-key session makes no request.
 

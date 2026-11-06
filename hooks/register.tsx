@@ -15,7 +15,7 @@ const SPRITE_COLUMNS = 12
 const SPRITE_ROWS = 3
 const FRAME_MS = 400 // stop-motion: a few frames, each held
 const PERCENT = 5 // " 100%"
-const RESET = 14 // " ↻ 06d-23h-59m" or " ↻ 04h-59m-59s": one width for both bars
+const RESET = 12 // " 06d-23h-59m" or " 04h-59m-59s": one width for every row
 const DOCS_PREFIX = 'mcp__claude_ai_Claude_Docs__'
 
 const READING = ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'ToolSearch']
@@ -225,7 +225,6 @@ const live: {
   resetKey: string | null
   resetTries: number
   resetAt: number
-  pressAt: number
 } = {
   pose: 'idle',
   isWorking: false,
@@ -237,7 +236,6 @@ const live: {
   resetKey: null,
   resetTries: 0,
   resetAt: 0,
-  pressAt: 0,
 }
 
 const shown = (): Pose => (live.isWorking ? live.pose : 'idle')
@@ -302,23 +300,6 @@ export const expiredKey = (usage: Usage | null | undefined, now: number): string
     (r): r is string => !!r && Date.parse(r) <= now,
   )
   return gone.length > 0 ? gone.join() : null
-}
-
-const PRESS_GAP_MS = 10_000
-
-// A click on a ↻: the session's latest reading, then the account's own.
-async function refreshOnPress($: EngineInterface) {
-  const now = await $.clock.now()
-  if (now - live.pressAt < PRESS_GAP_MS) return
-  live.pressAt = now
-  await refreshUsage($).catch(() => undefined)
-  const limits = await fetchAccountUsage($).catch(() => [])
-  if (limits.length === 0) {
-    $.ui.toast('No fresh usage from the account; the bars update after the next reply.')
-    return
-  }
-  await setUsage($, limits)
-  $.ui.invalidate('ui.render')
 }
 
 const RESET_FIRST_MS = 5_000 // the account has rolled the window over by then
@@ -497,7 +478,7 @@ export const register: Register = (on, options) => {
     const model = await read($, modelAtom)
     const cacheAt = await read($, cacheAtom)
     const context = (await $.session.usage().catch(() => null))?.context
-    const { Box, Text, Image, Button } = $.ui.resolve(e)
+    const { Box, Text, Image } = $.ui.resolve(e)
 
     const current = shown()
     const poseFrames = frames[current]
@@ -511,12 +492,10 @@ export const register: Register = (on, options) => {
     const row = (
       name: string,
       percent: number | null | undefined,
-      glyph: string,
       timer: string,
       isLive: boolean,
       color?: string,
       segments = 1,
-      isButton = false,
     ) => {
       const fill = percent ?? 0
       const filled = Math.min(barWidth, Math.round((fill / 100) * barWidth))
@@ -531,33 +510,16 @@ export const register: Register = (on, options) => {
             )
           ))}
           <Text dimColor={percent == null}>{percent == null ? '   --' : ` ${String(Math.round(fill)).padStart(3)}%`}</Text>
-          {isButton ? (
-            <Box key={`refresh-${name}`} flexDirection="row">
-              <Text> </Text>
-              <Button key={`refresh-${name}`} plain dimColor label={glyph} onPress={() => void refreshOnPress($)} />
-              <Text> </Text>
-            </Box>
-          ) : (
-            <Text dimColor> {glyph} </Text>
-          )}
+          <Text> </Text>
           <Text bold={isLive || !!color} color={color} dimColor={!isLive && !color}>
-            {timer.padStart(RESET - 3)}
+            {timer.padStart(RESET - 1)}
           </Text>
         </Box>
       )
     }
     // The weekly bar is cut into its seven days.
     const bar = (name: string, window: Window | null | undefined, withDays = false) =>
-      row(
-        name,
-        window?.percentUsed,
-        '↻',
-        countdown(window?.resetsAt, now, withDays),
-        !!window?.resetsAt,
-        undefined,
-        withDays ? 7 : 1,
-        true,
-      )
+      row(name, window?.percentUsed, countdown(window?.resetsAt, now, withDays), !!window?.resetsAt, undefined, withDays ? 7 : 1)
     const cacheTimer = cacheCountdown(cacheAt, config.cacheTtlMs, now)
     const isCold = cacheTimer === 'cold'
 
@@ -593,7 +555,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" marginLeft={1}>
           {bar('7d', usage?.sevenDay, true)}
           {bar('5h', usage?.fiveHour)}
-          {row(contextLabel, context?.percent, isCold ? '❄' : '☀', cacheTimer, cacheAt != null && !isCold, isCold ? config.cold : undefined)}
+          {row(contextLabel, context?.percent, cacheTimer, cacheAt != null && !isCold, isCold ? config.cold : undefined)}
         </Box>
       </Box>
     )

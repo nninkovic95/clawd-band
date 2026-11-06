@@ -25,7 +25,7 @@ const SPRITE_ROWS = 3
 const FRAME_MS = 400
 const LABEL = 3
 const PERCENT = 5
-const RESET = 14
+const RESET = 12
 const COLUMNS = 72 // the terminal's body width in the demo
 
 // Claude Code's dark theme.
@@ -158,7 +158,7 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
   const elapsed = Math.floor(elapsedMs / 1000)
   const frames = FRAMES[scene.pose]
 
-  const bar = (row: number, label: string, percent: number, glyph: string, timer: string, color?: string) => {
+  const bar = (row: number, label: string, percent: number, timer: string, color?: string) => {
     const col = left + 1
     const filled = Math.min(barWidth, Math.round((percent / 100) * barWidth))
     return (
@@ -168,8 +168,7 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
       (label === '7d' ? cuts(col + LABEL, row, barWidth, filled) : '') +
       runs(col + LABEL + barWidth, row, [
         { text: ` ${String(Math.round(percent)).padStart(3)}%`, color: THEME.text },
-        { text: ` ${glyph} `, color: THEME.dim },
-        { text: timer.padStart(RESET - 3), color: color ?? THEME.text, bold: true },
+        { text: ` ${timer.padStart(RESET - 1)}`, color: color ?? THEME.text, bold: true },
       ])
     )
   }
@@ -184,11 +183,11 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
       { text: MODEL, color: THEME.text, bold: true },
       { text: ` ${EFFORT}`, color: THEME.dim },
     ]) +
-    bar(1, '7d', scene.sevenDay, '↻', countdown(SEVEN_DAY_RESET - elapsed, true)) +
-    bar(2, '5h', scene.fiveHour, '↻', countdown(FIVE_HOUR_RESET - elapsed, false)) +
+    bar(1, '7d', scene.sevenDay, countdown(SEVEN_DAY_RESET - elapsed, true)) +
+    bar(2, '5h', scene.fiveHour, countdown(FIVE_HOUR_RESET - elapsed, false)) +
     (scene.isCold
-      ? bar(3, WINDOW, scene.context, '❄', 'cold', THEME.cold)
-      : bar(3, WINDOW, scene.context, '☀', countdown(CACHE_LEFT - elapsed, false))) +
+      ? bar(3, WINDOW, scene.context, 'cold', THEME.cold)
+      : bar(3, WINDOW, scene.context, countdown(CACHE_LEFT - elapsed, false))) +
     (note ? runs(0, 5, [{ text: note, color: THEME.note }]) : '')
 
   // The light shade: one dot in each 2 × 2 of a 6 × 6 grid per cell.
