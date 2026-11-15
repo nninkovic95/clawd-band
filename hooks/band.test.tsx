@@ -1,3 +1,4 @@
+import type { Hook, On, SessionContextUsage, SessionRateLimit } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import {
@@ -5,26 +6,53 @@ import {
   barRuns,
   cacheCountdown,
   countdown,
-  expiredKey,
-  mergeUsage,
-  parseAccountUsage,
   poseFor,
-  resetExpired,
-  sameUsage,
   settings,
   shortModel,
-  toUsage,
   windowLabel,
   withoutEffort,
 } from './register'
 import { ART_HEIGHT, ART_WIDTH, CLAUDE_ORANGE, FRAMES, framesFor, PIXEL_HEIGHT, PIXEL_WIDTH, SCALE } from './sprite'
+import {
+  askKey,
+  asStoredUsage,
+  expiredKey,
+  mergeUsage,
+  parseAccountUsage,
+  resetExpired,
+  sameUsage,
+  toUsage,
+} from './usage'
 
 const BAND = {
   plugin: 'clawd-band',
   surface: 'terminal',
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 75, scroll: { offset: 0, bodyRows: 10 } },
+  props: {
+    hasSurvey: false,
+    isCollapsed: false,
+    isWorking: false,
+    maxRows: 10,
+    bodyColumns: 75,
+    scroll: { offset: 0, bodyRows: 10 },
+    view: {},
+  },
 } as const
+
+// The moment every test's clock starts at.
+const NOW = Date.parse('2026-10-11T15:00:00Z')
+
+// A whole `$.session.usage()` answer: the engine always reports a window.
+const usageOf = (rateLimits: SessionRateLimit[] = [], context: SessionContextUsage = { window: 200_000 }) => ({
+  value: { startedAt: 0, context, rateLimits },
+})
+
+// The tests' stand-in for the engine's own drawing: an empty box, since a
+// stand-in that draws nothing is refused.
+const core: Hook<'ui.render'> = ($, e) => {
+  const { Box } = $.ui.resolve(e)
+  return <Box />
+}
 
 test('tool names pick the pose', async () => {
   expect(poseFor('AskUserQuestion')).toBe('questioning')
@@ -56,7 +84,7 @@ test('model names are shortened', async () => {
 })
 
 test('countdown and colours', async () => {
-  const now = Date.parse('2026-10-11T15:00:00Z')
+  const now = NOW
   expect(countdown('2026-10-11T18:04:05Z', now)).toBe('03h-04m-05s')
   expect(countdown('2026-10-11T14:00:00Z', now)).toBe('00h-00m-00s')
   expect(countdown(null, now)).toBe('--h---m---s')
@@ -73,7 +101,7 @@ test('the context row: window label and cache countdown', async () => {
   expect(windowLabel(1_000_000)).toBe('1m')
   expect(windowLabel(200_000)).toBe('200k')
   expect(windowLabel(undefined)).toBe('cx')
-  const now = Date.parse('2026-10-11T15:00:00Z')
+  const now = NOW
   const hour = settings({}).cacheTtlMs
   expect(hour).toBe(3_600_000)
   expect(settings({ cache_ttl: '5m' }).cacheTtlMs).toBe(300_000)
@@ -104,9 +132,9 @@ test('the weekly bar is cut into seven days', async () => {
 })
 
 test('a cold cache turns the context row blue', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
-  on('session.usage', () => ({ value: { rateLimits: [], context: { window: 1_000_000, tokens: 120_000, percent: 12 } } }))
-  on('ui.render', () => null)
+  const clock = mock.clock(on, { now: NOW })
+  on('session.usage', () => usageOf([], { window: 1_000_000, tokens: 120_000, percent: 12 }))
+  on('ui.render', core)
   on('state.get', { key: 'cacheAt' }, () => ({ value: { value: Date.parse('2026-10-11T13:00:00Z'), version: 1 } }))
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
@@ -163,8 +191,8 @@ test('every frame is a whole RGBA picture', async () => {
 })
 
 test('the band draws the sprite, both bars and the countdown', async ($, on) => {
-  mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
-  on('ui.render', () => null)
+  mock.clock(on, { now: NOW })
+  on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
@@ -178,8 +206,8 @@ test('the band draws the sprite, both bars and the countdown', async ($, on) => 
 })
 
 test('show_model off drops the model line', { options: { show_model: false } }, async ($, on) => {
-  mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
-  on('ui.render', () => null)
+  mock.clock(on, { now: NOW })
+  on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ key: 'model' })).toBe(undefined)
@@ -191,14 +219,14 @@ test(
   'the bars take the configured colours',
   { options: { bar_color_low: '#00ff00', bar_color_empty: 'gray' } },
   async ($, on) => {
-    const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+    const clock = mock.clock(on, { now: NOW })
     mock.store(on, {
       usage: {
         fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T18:00:00Z' },
         sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
       },
     })
-    on('ui.render', () => null)
+    on('ui.render', core)
     const first = await $.ui.mount(BAND)
     await clock.advance(1)
     await first.unmount()
@@ -222,7 +250,7 @@ test('the band yields to a survey', async ($, on) => {
 })
 
 test('a window that has reset reads 0% with no reset time', async () => {
-  const now = Date.parse('2026-10-11T15:00:00Z')
+  const now = NOW
   const usage = {
     fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T14:00:00Z' },
     sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
@@ -236,10 +264,10 @@ test('a reading missing a window keeps the last one', async () => {
     fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T18:00:00Z' },
     sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
   }
-  const merged = mergeUsage(current, [{ kind: 'seven_day', percentUsed: 33, resetsAt: '2026-10-14T00:00:00Z' }])
+  const merged = mergeUsage(current, toUsage([{ kind: 'seven_day', percentUsed: 33, resetsAt: '2026-10-14T00:00:00Z' }]))
   expect(merged?.fiveHour).toEqual(current.fiveHour)
   expect(merged?.sevenDay?.percentUsed).toBe(33)
-  expect(mergeUsage(current, [])).toEqual(current)
+  expect(mergeUsage(current, toUsage([]))).toEqual(current)
 })
 
 test('readings compare by percent and reset time', async () => {
@@ -254,28 +282,28 @@ test('readings compare by percent and reset time', async () => {
 })
 
 test('a new reset time at the same percent shows after the turn', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   let resetsAt = '2026-10-11T14:00:00Z'
   on('session.id', () => ({ value: 'one' }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.authorize', () => ({ deny: 'no account in a test' }))
-  on('session.usage', () => ({ value: { rateLimits: [{ kind: 'five_hour', percentUsed: 1, resetsAt }] } }))
+  on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 1, resetsAt }]))
   on('turn.complete', () => ({ text: '' }))
-  on('ui.render', () => null)
+  on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
   expect(await ui.find({ type: 'Text', text: '--h---m---s' })).toBeDefined()
   // The window reset and a request opened a new one, still at 1%: no session.measure.
   resetsAt = '2026-10-11T19:00:00Z'
   await $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 'turn-1', reason: 'answer' })
-  await clock.advance(1000)
+  await clock.advance(1500)
   expect(await ui.find({ type: 'Text', text: /^03h-59m-5\ds$/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('expired windows make the key one fetch on reset answers', async () => {
-  const now = Date.parse('2026-10-11T15:00:00Z')
+  const now = NOW
   const usage = {
     fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T14:00:00Z' },
     sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
@@ -292,50 +320,155 @@ const accountUsage = (fiveHour: string | null) =>
   })
 
 test('a window that runs out mid-session is fetched again, no reply needed', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   let next: string | null = '2026-10-11T15:00:10Z'
   let fetches = 0
   on('session.id', () => ({ value: 'one' }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
-  on('session.usage', () => ({ value: { rateLimits: [] } }))
+  on('session.usage', () => usageOf())
   on('session.authorize', () => ({ value: { kind: 'bearer', handle: 'test' } }))
   on('http.fetch', () => {
     fetches += 1
     return { value: { status: 200, ok: true, headers: {}, text: accountUsage(next) } }
   })
-  on('ui.render', () => null)
+  on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
   expect(fetches).toBe(1) // the startup fetch
-  // The window runs out at 15:00:10; the account has the next one 5 s later.
+  // The window runs out at 15:00:10; the account has the next one a few seconds later.
   next = '2026-10-11T20:00:10Z'
-  await clock.advance(16_000)
+  await clock.advance(20_000)
   expect(fetches).toBe(2)
-  expect(await ui.find({ type: 'Text', text: /^04h-59m-5\ds$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^04h-59m-\d\ds$/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('a fetch on reset gives up after five tries', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
-  mock.store(on)
-  let next: string | null = '2026-10-11T15:00:10Z'
-  let fetches = 0
+// A signed-in session whose account request is answered by `answer`; resolves
+// to how many requests were made.
+const account = (on: On, answer: () => { status: number; text: string }) => {
+  const count = { fetches: 0 }
   on('session.id', () => ({ value: 'one' }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
-  on('session.usage', () => ({ value: { rateLimits: [] } }))
+  on('session.usage', () => usageOf())
   on('session.authorize', () => ({ value: { kind: 'bearer', handle: 'test' } }))
+  on('ui.log', () => ({ value: undefined }))
   on('http.fetch', () => {
-    fetches += 1
-    return { value: { status: 200, ok: true, headers: {}, text: accountUsage(next) } }
+    count.fetches += 1
+    const { status, text } = answer()
+    return { value: { status, ok: status === 200, headers: {}, text } }
   })
-  on('ui.render', () => null)
+  on('ui.render', core)
+  return count
+}
+
+test('an answer with no open window is not asked for again', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  let next: string | null = '2026-10-11T15:00:10Z'
+  const count = account(on, () => ({ status: 200, text: accountUsage(next) }))
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
-  // No new window opens (nothing is sent): the account has no five-hour window.
+  // Nothing is sent after the reset, so the account has no five-hour window.
   next = null
   await clock.advance(30 * 60_000)
-  expect(fetches).toBe(1 + 5)
+  expect(count.fetches).toBe(1 + 1)
+  await ui.unmount()
+})
+
+test('a request that fails is tried again, five times at most', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  const count = account(on, () => ({ status: 500, text: '' }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(30 * 60_000)
+  expect(count.fetches).toBe(5)
+  await ui.unmount()
+})
+
+test('a first request that fails and then works fills the bars without a reply', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  let status = 500
+  const count = account(on, () => ({ status, text: accountUsage('2026-10-11T18:00:00Z') }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1500)
+  expect(await ui.find({ type: 'Text', text: '  31%' })).toBe(undefined)
+  status = 200
+  await clock.advance(65_000)
+  expect(count.fetches).toBe(2)
+  expect(await ui.find({ type: 'Text', text: '  31%' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a 429 ends the tries', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  const count = account(on, () => ({ status: 429, text: '' }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(30 * 60_000)
+  expect(count.fetches).toBe(1)
+  await ui.unmount()
+})
+
+test("another session's newer reading shows without a reply or a request", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const reading = (percentUsed: number, readAt: number) => ({
+    fiveHour: { percentUsed, resetsAt: '2026-10-11T18:00:00Z' },
+    sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
+    readAt,
+  })
+  let stored = reading(40, NOW - 1000)
+  on('store.get', ($, e) => ({ value: e.key === 'usage' ? stored : undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => usageOf())
+  on('session.authorize', () => ({ deny: 'no account in a test' }))
+  on('ui.render', core)
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1500)
+  expect(await ui.find({ type: 'Text', text: '  40%' })).toBeDefined()
+  // Another session stores what its reply reported.
+  stored = reading(42, NOW + 2000)
+  await clock.advance(2000)
+  expect(await ui.find({ type: 'Text', text: '  42%' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a stored reading is checked, and one without a time is the oldest', async () => {
+  const usage = {
+    fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T18:00:00Z' },
+    sevenDay: { percentUsed: 31, resetsAt: null },
+  }
+  expect(asStoredUsage({ ...usage, readAt: 7 })).toEqual({ usage, readAt: 7 })
+  expect(asStoredUsage(usage)).toEqual({ usage, readAt: 0 })
+  expect(asStoredUsage({ fiveHour: 'full', sevenDay: null })).toBe(null)
+  expect(asStoredUsage('nonsense')).toBe(null)
+  expect(asStoredUsage(undefined)).toBe(null)
+})
+
+test('the account is asked only while the reading is not live', async () => {
+  const usage = {
+    fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T14:00:00Z' },
+    sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
+  }
+  expect(askKey(null, false, NOW)).toBe('none')
+  expect(askKey(usage, false, NOW)).toBe('2026-10-11T14:00:00Z')
+  const live = { ...usage, fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T18:00:00Z' } }
+  expect(askKey(live, false, NOW)).toBe(null)
+  expect(askKey(live, true, NOW)).toBe('stale')
+})
+
+test('a terminal that refuses the picture gets the text Clawd', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: { deny: 'the Image draws its alt here: no pictures in a test' } }))
+  const ui = await $.ui.mount(BAND)
+  expect(await ui.find({ key: 'clawd' })).toBeDefined()
+  await clock.advance(2000)
+  expect(await ui.find({ key: 'clawd' })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: '▝▜█████▛▘' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -358,30 +491,27 @@ test('the account usage response gives both windows', async () => {
 })
 
 test('a new session id (a /clear) loads the usage again', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   let id = 'before-clear'
   on('session.id', () => ({ value: id }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.authorize', () => ({ deny: 'no account in a test' }))
-  on('session.usage', () => ({
-    value: {
-      rateLimits:
-        id === 'before-clear' ? [] : [{ kind: 'seven_day', percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' }],
-    },
-  }))
-  on('ui.render', () => null)
+  on('session.usage', () =>
+    usageOf(id === 'before-clear' ? [] : [{ kind: 'seven_day', percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' }]),
+  )
+  on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
   expect(await ui.find({ type: 'Text', text: '  31%' })).toBe(undefined)
   id = 'after-clear'
-  await clock.advance(1000)
+  await clock.advance(1500)
   expect(await ui.find({ type: 'Text', text: '  31%' })).toBeDefined()
   await ui.unmount()
 })
 
 test('at startup a cached 5h window that has reset shows 0%, not --', async ($, on) => {
-  const clock = mock.clock(on, { now: Date.parse('2026-10-11T15:00:00Z') })
+  const clock = mock.clock(on, { now: NOW })
   mock.store(on, {
     usage: {
       fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T14:00:00Z' },
@@ -389,8 +519,8 @@ test('at startup a cached 5h window that has reset shows 0%, not --', async ($, 
     },
   })
   // A context reading too, so no row of the band reads `--`.
-  on('session.usage', () => ({ value: { rateLimits: [], context: { window: 1_000_000, tokens: 50_000, percent: 5 } } }))
-  on('ui.render', () => null)
+  on('session.usage', () => usageOf([], { window: 1_000_000, tokens: 50_000, percent: 5 }))
+  on('ui.render', core)
   const first = await $.ui.mount(BAND)
   await clock.advance(1)
   await first.unmount()
@@ -399,4 +529,54 @@ test('at startup a cached 5h window that has reset shows 0%, not --', async ($, 
   expect(await ui.find({ type: 'Text', text: '   0%' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '   --' })).toBe(undefined)
   await ui.unmount()
+})
+
+// Every pose the mod writes, in order.
+const posesWritten = (on: On): unknown[] => {
+  const poses: unknown[] = []
+  on('state.set', { key: 'pose' }, ($, e, next) => {
+    poses.push(e.value)
+    return next(e)
+  })
+  return poses
+}
+
+const TURN_END = { answer: '', durationMs: 0, isAborted: false, turnId: 't1', reason: 'answer' } as const
+
+test('a turn sets Clawd working and its end sets him resting', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const poses = posesWritten(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.turn.start({ text: 'hello', turnId: 't1' })
+  await $.turn.complete(TURN_END)
+  expect(poses).toEqual(['working', 'idle'])
+})
+
+test('the reply stream picks thinking, working and the tool pose', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  mock.store(on) // the step also stores the model it names
+  const poses = posesWritten(on)
+  on('turn.step', async function* ($, e) {
+    yield { kind: 'thinking', index: 0, text: '' }
+    yield { kind: 'text', index: 1, text: '' }
+    yield { kind: 'tool', index: 2, id: 'tool-1', name: 'Grep' }
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
+  })
+  const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })
+  for await (const chunk of stream) expect(chunk.kind).toBeDefined()
+  expect(poses).toEqual(['thinking', 'working', 'reading'])
+})
+
+test('a tool call holds its pose while it runs, then goes back to working', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const poses = posesWritten(on)
+  let during: unknown[] = []
+  on('tool.call', () => {
+    during = [...poses]
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  expect(during).toEqual(['running'])
+  expect(poses).toEqual(['running', 'working'])
 })

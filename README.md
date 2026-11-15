@@ -12,7 +12,7 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
  Opus 5.5 high 1m █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  12% 00h-47m-03s
 ```
 
-- **Sprite**: Clawd, drawn with kitty's graphics protocol at 12 columns by 3 rows, in stop-motion (a few frames, each held for 400 ms). It is the only thing that moves: the mod replaces Claude Code's own spinner with an empty box.
+- **Sprite**: Clawd, drawn with kitty's graphics protocol at 12 columns by 3 rows, in stop-motion (a few frames, each held for 400 ms). It is the only thing that moves: the mod replaces Claude Code's own spinner with an empty box. Where the terminal draws no picture (a terminal without kitty graphics, or a background session opened from the agents view), the band draws Clawd as Claude Code's three-line text logo instead.
 - **Model and effort**: the session's model, shortened (`claude-opus-5-5` becomes `Opus 5.5`), with the reasoning effort beside it.
 - **Usage bars**: `7d` is the weekly window, with a faint mark between each of its seven days, `5h` the five-hour window. Each bar turns from green to amber at 60% and to red at 85%.
 - **Context bar**: how full the context window is, the same figure as the status line's `used_percentage`, labelled with the window's size (`1m`, `200k`). Beside it, a countdown runs until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses the bar and the countdown turn blue and the countdown reads `cold`; the next request re-sends the whole context at the cache-write price.
@@ -20,14 +20,15 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 
 ### Where the numbers come from
 
-The percentages and reset times are the same ones `/usage` shows. The band keeps them current in four ways:
+The percentages and reset times are the same ones `/usage` shows. The band keeps them current in five ways:
 
-1. **At startup, `/clear` and `/new`:** it shows the last reading it saved, then asks Claude Code for its own. A fresh session has none yet, so the band asks your account once (see [Privacy](#privacy)).
+1. **Between your sessions:** every reading is saved with the time it was taken, in the plugin's store, which all your sessions on the machine share. Each session looks at the store once a second and takes a newer reading, so a reply in one session updates the band in all of them, and a new session starts with the newest reading there is. This uses no network.
 2. **When a window moves:** Claude Code reads the limits from the response headers of every request and tells the band whenever a window moves by a whole point.
 3. **After every turn:** the band reads Claude Code's latest figures again, so a new reset time shows even when the percentage did not move (a window that reset and started over at the same rounded percent).
-4. **When a reset time passes:** the window drops to 0% and its countdown to dashes straight away. Five seconds later the band asks your account for the next window, so the countdown fills without waiting for a reply. If the account has no new reset time yet, it asks again once a minute, five times at most; after that the next reply fills it.
+4. **When there is no live reading:** the band asks your account (see [Privacy](#privacy)). That is the case when nothing has been saved yet, when the saved reading was more than five minutes old as the session loaded, and when a window's reset time has passed. A request that fails is tried again after a minute, five times at most; after that the next reply fills the bars.
+5. **When a reset time passes:** the window drops to 0% and its countdown to dashes straight away, until the next reading names the new window.
 
-While a session sits idle, nothing else updates the bars, so use on claude.ai or another device shows up after the next reply.
+Where Claude Code refuses the account request (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set, or the session uses an API key), the first three ways are all there is: the bars follow your replies. Use on claude.ai or another device then shows up after the next reply on this machine.
 
 ## Every pose
 
@@ -81,9 +82,10 @@ node scripts/render-demo.ts   # needs node 23.6+, rsvg-convert and ImageMagick
 
 ## Requirements
 
-- Claude Code with function-hook plugins (mods): built against 2.1.296, tested on 2.1.299. The mod API is early access and may change between releases.
-- A terminal that supports the kitty graphics protocol, for the sprite. It has been tested in [kitty](https://sw.kovidgoyal.net/kitty/); other terminals are untested.
-- A claude.ai subscription login (Pro or Max) for the usage bars: the five-hour and weekly windows belong to a subscription, and without them the bars read `--`.
+- Claude Code with function-hook plugins (mods): tested on 2.1.325. The mod API is early access and may change between releases; older builds are untested.
+- Any terminal. The animated picture needs the kitty graphics protocol and has been tested in [kitty](https://sw.kovidgoyal.net/kitty/); elsewhere, and in background sessions, Clawd is drawn as text.
+- A claude.ai subscription login (Pro or Max) for the usage bars: the five-hour and weekly windows belong to a subscription, and without them the bars read `--`. The context bar works with any login.
+- Nothing to install or build: the mod has no dependencies.
 
 ## Install
 
@@ -139,9 +141,9 @@ Each bar colour can be a Claude Code theme key, which follows your `/theme`: `su
 
 This section is clawd-band's privacy policy: what the mod reads, stores and sends. clawd-band has no server of its own and collects nothing.
 
-**The one host it contacts is `api.anthropic.com`, with one request:** `GET https://api.anthropic.com/api/oauth/usage` (`hooks/register.tsx`, `fetchAccountUsage`).
+**The one host it contacts is `api.anthropic.com`, with one request:** `GET https://api.anthropic.com/api/oauth/usage` (`hooks/usage.ts`, `fetchAccountUsage`).
 
-- **When:** once at the start of a session, and again after `/clear` or `/new`, but only if Claude Code has no rate-limit reading yet; and when a window's reset time passes, five seconds later and then once a minute, at most five times, until the account reports the next window. Otherwise Claude Code's own reading from the response headers of its requests is used and nothing is fetched.
+- **When:** only while the band has no live reading: nothing saved yet, a saved reading that was more than five minutes old as the session loaded (also after `/clear` or `/new`), or a window whose reset time has passed (then a few seconds later). One answer settles it. A request that fails is repeated after a minute, at most five times in all; a 429 ends the tries at once. Otherwise the readings Claude Code takes from the response headers of its own requests are used and nothing is fetched. Where `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set, Claude Code refuses this request and nothing leaves the machine.
 - **What is sent:** the request carries your own claude.ai sign-in, which Claude Code attaches through `$.session.authorize()` (the mod never sees the token), and the header `anthropic-beta: oauth-2025-04-20`. It has no body. Nothing from the conversation, your files or your settings is sent.
 - **What comes back:** your five-hour and weekly usage percentages and reset times. This is the same data `/usage` shows. An API-key session makes no request.
 
@@ -153,9 +155,29 @@ This section is clawd-band's privacy policy: what the mod reads, stores and send
 - The rate-limit readings Claude Code already holds.
 - The session id, to notice a `/clear` (which starts a new session in the same process) and load the band again. It is compared with the last id seen and never sent.
 
-**What it stores:** the last usage reading and the last model and effort, in Claude Code's own plugin store on your machine, so that the band is filled at startup. A cached effort is shown only for the same model. Each new reading replaces the old one; uninstalling the plugin and deleting its store removes them.
+**What it stores:** the last usage reading with the time it was taken, and the last model and effort, in Claude Code's own plugin store on your machine. Your sessions on the machine share that store, which is how one session's reading reaches the others and how the band is filled at startup. A cached effort is shown only for the same model. Each new reading replaces the old one; uninstalling the plugin and deleting its store removes them.
+
+**What it logs:** when Claude Code runs with `--debug`, one line in Claude Code's debug log each time the outcome of the account request changes, holding one of `answered`, `no-sign-in`, `api-key`, `http <status>`, `timeout` or `refused or no network`. Never a token, a header or a response.
 
 No telemetry, no analytics, no third parties, no other network calls, and no files written outside the plugin store. The usage request goes to Anthropic under your own account, and Anthropic's [privacy policy](https://www.anthropic.com/legal/privacy) applies to it. Questions or concerns: [open an issue](https://github.com/nninkovic95/clawd-band/issues).
+
+## Hooks
+
+Everything the mod registers with Claude Code, in `hooks/register.tsx`. Claude Code hands a hook the whole event; the "reads" column is all the mod looks at.
+
+| Event | Why | Reads | Changes anything? |
+| --- | --- | --- | --- |
+| `session.start` | Start the band's timer | nothing | no |
+| `session.measure` | Take a new usage reading when a window moves | the rate-limit readings | no |
+| `turn.start` | Pose: working | nothing | no |
+| `turn.step` | Pose: thinking, working or the tool being called; the model line; the cache countdown | the kind of each part of the reply, a tool's name, the model and effort, whether the reply reported usage | no; the stream is passed on as it came |
+| `tool.call` | Hold the tool's pose while it runs; freeze the band while a question menu is open | the tool's name | no; the call and its result are passed on |
+| `turn.complete` | Pose: idle; read the usage again | nothing | no |
+| `ui.render` `Spinner` | Clawd is the only thing that moves | the surface | draws an empty box in place of Claude Code's spinner, in the terminal |
+| `ui.render` `PromptHint` | Drop the effort pill, which the model line already shows | the hint line's text | rewrites the hint line without the pill, only when `show_model` is on |
+| `ui.render` `AbovePrompt` | Draw the band | the band's size, whether a turn is running, whether a survey holds the band | draws the band; leaves it to a survey |
+
+Calls it makes on Claude Code: the timer (`$.clock`), the plugin store (`$.store`), the session's id, model and usage (`$.session`), its own state (`$.state`), the picture swap (`$.ui.blit`), a redraw request (`$.ui.invalidate`), the debug-log line (`$.ui.log`), and the one request described under [Privacy](#privacy) (`$.session.authorize`, `$.http.fetch`). It runs no commands, reads no files and reads no environment variables.
 
 ## Development
 
@@ -166,7 +188,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-`claude plugin test` runs `hooks/band.test.tsx`: pose mapping, usage parsing and merging, the reset time read after each turn, the fetch when a reset passes and its five-try limit, countdowns and colours, whole RGBA frames, the band's content, the survey case, a `/clear` reload, and the options (checking, the model line, bar and sprite colours). Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
+`claude plugin test` runs `hooks/band.test.tsx`: pose mapping and the pose through a turn, usage parsing, merging and the checked stored reading, a reading taken over from another session, the reset time read after each turn, the account request (when it is made, its retries and what ends them), countdowns and colours, whole RGBA frames, the band's content, the text Clawd where the picture is refused, the survey case, a `/clear` reload, and the options (checking, the model line, bar and sprite colours). Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
 
 ## Credits
 

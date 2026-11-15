@@ -1,6 +1,21 @@
 import type { Pose } from '../types'
 
-// Clawd as the CLI prints it at startup (▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝): a
+declare global {
+  // The runtime's base64 methods on byte arrays; the types this module is
+  // checked against stop a version of the language short of them.
+  interface Uint8Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
+    toBase64(): string
+  }
+  interface Uint8ArrayConstructor {
+    fromBase64(text: string): Uint8Array<ArrayBuffer>
+  }
+}
+
+// Clawd in text, as the CLI prints it at startup: what the band draws where
+// the terminal shows no picture.
+export const TEXT_CLAWD = [' ▐▛███▜▌ ', '▝▜█████▛▘', '  ▘▘ ▝▝  ']
+
+// The same Clawd as a picture (▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝): a
 // quadrant is twice as tall as wide, so each logo pixel is drawn here as one
 // column by two rows of square art pixels. The body sits at the bottom of the
 // canvas; the rows above it and the columns beside it hold the props.
@@ -26,16 +41,19 @@ const COLORS: Record<string, Rgb> = {
 
 type Grid = string[][]
 
+// The pictures of one pose, in order; never empty.
+type Animation = readonly [Grid, ...Grid[]]
+
 const blank = (): Grid => Array.from({ length: ART_HEIGHT }, () => Array<string>(ART_WIDTH).fill('.'))
 
 // Paints a pattern at (x, y): a space leaves the pixel, a dot clears it.
 const stamp = (g: Grid, pattern: string[], x: number, y: number): Grid => {
   pattern.forEach((row, r) =>
     row.split('').forEach((ch, c) => {
-      const gy = y + r
+      const line = g[y + r]
       const gx = x + c
-      if (ch === ' ' || gy < 0 || gy >= ART_HEIGHT || gx < 0 || gx >= ART_WIDTH) return
-      g[gy][gx] = ch
+      if (ch === ' ' || !line || gx < 0 || gx >= ART_WIDTH) return
+      line[gx] = ch
     }),
   )
   return g
@@ -61,7 +79,7 @@ const body = ({ y = 4, eyes = 'open', left = 'out', right = 'out', legs = 'stand
 
   const eyeRows = eyes === 'down' ? [y + 3] : [y + 2, y + 3]
   const shift = eyes === 'left' ? -1 : eyes === 'right' ? 1 : 0
-  if (eyes !== 'shut') for (const r of eyeRows) for (const c of [X + 5, X + 12]) g[r][c + shift] = '.'
+  if (eyes !== 'shut') for (const r of eyeRows) for (const c of [X + 5, X + 12]) stamp(g, ['.'], c + shift, r)
 
   const arm = (side: Arm, col: number) => {
     if (side === 'out') stamp(g, fill(2, 2), col, y + 4)
@@ -81,7 +99,7 @@ const body = ({ y = 4, eyes = 'open', left = 'out', right = 'out', legs = 'stand
 
 // Idle: stands, blinks now and then.
 const stand = body()
-const idle = [stand, stand, stand, stand, stand, body({ eyes: 'shut' })]
+const idle: Animation = [stand, stand, stand, stand, stand, body({ eyes: 'shut' })]
 
 // Thinking: a hand on the head, scratching, and a thought bubble rising.
 const scratch = (handX: number, dots: number): Grid => {
@@ -92,15 +110,15 @@ const scratch = (handX: number, dots: number): Grid => {
   if (dots >= 3) stamp(g, ['ww', 'ww'], 1, 0)
   return g
 }
-const thinking = [scratch(17, 1), scratch(16, 2), scratch(17, 3), scratch(16, 3)]
+const thinking: Animation = [scratch(17, 1), scratch(16, 2), scratch(17, 3), scratch(16, 3)]
 
 // Questioning: a "?" that bobs beside the head.
 const QUESTION = [' yyy ', 'y   y', '    y', '   y ', '  y  ', '     ', '  y  ']
 const asking = (y: number): Grid => stamp(body({ eyes: 'right' }), QUESTION, 22, y)
-const questioning = [asking(0), asking(0), asking(1), asking(1)]
+const questioning: Animation = [asking(0), asking(0), asking(1), asking(1)]
 
 // Working: both arms pumping.
-const working = [body({ left: 'up', right: 'up' }), stand, body({ left: 'down', right: 'down' }), stand]
+const working: Animation = [body({ left: 'up', right: 'up' }), stand, body({ left: 'down', right: 'down' }), stand]
 
 // Reading: a book held up, the eyes running along the line, then a page turns.
 const BOOK = fill(5, 4, 'b').map(r => `${r}ll${r}`)
@@ -109,7 +127,7 @@ const reader = (eyes: Body['eyes'], turning = false): Grid => {
   if (turning) stamp(g, ['  bbbb', ' bbbb'], X + 10, 6)
   return g
 }
-const reading = [reader('left'), reader('open'), reader('right'), reader('down', true)]
+const reading: Animation = [reader('left'), reader('open'), reader('right'), reader('down', true)]
 
 // Writing: a pencil in the right hand, leaving a line of ink as it moves.
 const PENCIL = ['y   ', ' y  ', '  y ', '   k']
@@ -121,18 +139,18 @@ const writer = (step: number): Grid => {
   stamp(g, ['w'.repeat(px + 3 - 21)], 21, 13)
   return g
 }
-const writing = [writer(0), writer(1), writer(2), writer(2)]
+const writing: Animation = [writer(0), writer(1), writer(2), writer(2)]
 
 // Running: a stride, then a bounce with the legs out, speed lines behind.
 const runA = stamp(stamp(body({ legs: 'stride', left: 'up', right: 'down' }), ['www'], 0, 6), ['ww'], 1, 10)
 const runB = stamp(stamp(body({ y: 3, legs: 'long', left: 'down', right: 'up' }), ['ww'], 1, 5), ['www'], 0, 9)
-const running = [runA, runB]
+const running: Animation = [runA, runB]
 
 // Searching: a magnifying glass held up on one side, then the other.
 const GLASS = [' ggg ', 'g   g', 'g   g', 'g   g', ' ggg ']
 const glassRight = stamp(stamp(body({ eyes: 'right', right: 'none' }), GLASS, 22, 0), ['k', '#', '##'], 22, 5)
 const glassLeft = stamp(stamp(body({ eyes: 'left', left: 'none' }), GLASS, 1, 0), [' k', ' #', '##'], 4, 5)
-const searching = [glassRight, glassRight, glassLeft, glassLeft]
+const searching: Animation = [glassRight, glassRight, glassLeft, glassLeft]
 
 // Delegating: waving a small Clawd off on its errand.
 const MINI = ['.###.', '#####', '.###.', '.#.#.']
@@ -141,9 +159,9 @@ const waver = (handX: number, miniX: number, miniY: number): Grid => {
   stamp(g, ['##'], handX, 2)
   return stamp(g, MINI, miniX, miniY)
 }
-const delegating = [waver(5, 22, 10), waver(4, 23, 9)]
+const delegating: Animation = [waver(5, 22, 10), waver(4, 23, 9)]
 
-const ART: Record<Pose, Grid[]> = {
+const ART: Record<Pose, Animation> = {
   idle,
   thinking,
   questioning,
@@ -157,39 +175,48 @@ const ART: Record<Pose, Grid[]> = {
 
 const toBase64 = (art: Grid, colors: Record<string, Rgb>): string => {
   const px = new Uint8Array(PIXEL_WIDTH * PIXEL_HEIGHT * 4)
-  for (let y = 0; y < PIXEL_HEIGHT; y++) {
-    const row = art[Math.floor(y / SCALE)]
-    for (let x = 0; x < PIXEL_WIDTH; x++) {
-      const rgb = colors[row[Math.floor(x / SCALE)]]
-      if (!rgb) continue
-      const i = (y * PIXEL_WIDTH + x) * 4
-      px[i] = rgb[0]
-      px[i + 1] = rgb[1]
-      px[i + 2] = rgb[2]
-      px[i + 3] = 255
-    }
-  }
+  // Each art pixel is a square of SCALE by SCALE picture pixels.
+  art.forEach((row, ay) =>
+    row.forEach((key, ax) => {
+      const rgb = colors[key]
+      if (!rgb) return
+      for (let dy = 0; dy < SCALE; dy++) {
+        for (let dx = 0; dx < SCALE; dx++) {
+          px.set([...rgb, 255], ((ay * SCALE + dy) * PIXEL_WIDTH + ax * SCALE + dx) * 4)
+        }
+      }
+    }),
+  )
   return px.toBase64()
 }
 
+// A pose's frames, each a whole picture in base64; never empty.
+export type Frames = readonly [string, ...string[]]
+
 // Every frame encoded once at load, so a tick only swaps a string.
-export const framesFor = (body: Rgb): Record<Pose, string[]> => {
+export const framesFor = (body: Rgb): Record<Pose, Frames> => {
   const colors = { ...COLORS, '#': body }
-  const encode = (art: Grid) => toBase64(art, colors)
+  const encode = ([first, ...rest]: Animation): Frames => [
+    toBase64(first, colors),
+    ...rest.map(art => toBase64(art, colors)),
+  ]
   return {
-    idle: ART.idle.map(encode),
-    thinking: ART.thinking.map(encode),
-    questioning: ART.questioning.map(encode),
-    working: ART.working.map(encode),
-    reading: ART.reading.map(encode),
-    writing: ART.writing.map(encode),
-    running: ART.running.map(encode),
-    searching: ART.searching.map(encode),
-    delegating: ART.delegating.map(encode),
+    idle: encode(ART.idle),
+    thinking: encode(ART.thinking),
+    questioning: encode(ART.questioning),
+    working: encode(ART.working),
+    reading: encode(ART.reading),
+    writing: encode(ART.writing),
+    running: encode(ART.running),
+    searching: encode(ART.searching),
+    delegating: encode(ART.delegating),
   }
 }
 
 export const FRAMES = framesFor(CLAUDE_ORANGE)
+
+// The frame a pose shows at tick `n`: the frames loop.
+export const frameAt = (frames: Frames, n: number): string => frames[n % frames.length] ?? frames[0]
 
 export const ALT: Record<Pose, string> = {
   idle: 'Clawd resting',
