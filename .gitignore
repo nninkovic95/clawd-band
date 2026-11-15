@@ -6,3 +6,4 @@ node_modules/
 .DS_Store
 Thumbs.db
 .claude/settings.local.json
+scripts/deploy-gate.sh

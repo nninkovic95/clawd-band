@@ -16,28 +16,84 @@
       "description": "Show the model and reasoning effort (e.g. Opus 5.5 high) on the line under Clawd. Off makes the band three rows tall.",
       "default": true
     },
+    "sprite": {
+      "type": "string",
+      "title": "Clawd",
+      "description": "picture: a picture where the terminal draws pictures, text elsewhere. text: always text. off: no Clawd. random: picture or text.",
+      "options": ["picture", "text", "off", "random"],
+      "default": "picture"
+    },
     "sprite_color": {
       "type": "string",
       "title": "Clawd colour",
       "description": "Clawd's body colour, as hex (#d77757 is Claude orange).",
       "default": "#d77757"
     },
-    "bar_color_low": {
-      "type": "string",
-      "title": "Bar colour below 60%",
-      "description": "A theme key (success, claude, suggestion, ...), a colour name (green) or hex (#4eba65).",
-      "default": "success"
+    "animate": {
+      "type": "boolean",
+      "title": "Animate Clawd",
+      "description": "Off, Clawd still changes pose with what the session is doing, but each pose holds its first frame.",
+      "default": true
     },
-    "bar_color_mid": {
-      "type": "string",
-      "title": "Bar colour from 60%",
-      "description": "A theme key, a colour name or hex.",
-      "default": "warning"
+    "random_poses": {
+      "type": "boolean",
+      "title": "Random pose variants",
+      "description": "Some poses have more than one animation, picked at random. Off, each pose always plays its first.",
+      "default": true
     },
-    "bar_color_high": {
+    "turn_endings": {
+      "type": "boolean",
+      "title": "Turn endings",
+      "description": "A short animation when a turn ends: finished, interrupted, refused or failed. Off, Clawd goes straight to rest.",
+      "default": true
+    },
+    "bar_style": {
       "type": "string",
-      "title": "Bar colour from 85%",
+      "title": "Bar style",
+      "description": "blocks █░, circles ●○ (each fills by quarters), dots ⣿⣀, squares ■□ or line ━─. random picks one each time the mod loads.",
+      "options": ["blocks", "circles", "dots", "squares", "line", "random"],
+      "default": "blocks"
+    },
+    "show_weekly": {
+      "type": "boolean",
+      "title": "Show the weekly bar",
+      "description": "The seven-day usage window and the countdown to its reset.",
+      "default": true
+    },
+    "show_five_hour": {
+      "type": "boolean",
+      "title": "Show the five-hour bar",
+      "description": "The five-hour usage window and the countdown to its reset. With this and the weekly bar off, the account's usage is not asked for.",
+      "default": true
+    },
+    "show_context": {
+      "type": "boolean",
+      "title": "Show the context bar",
+      "description": "The context window and the countdown until the prompt cache goes cold.",
+      "default": true
+    },
+    "bar_color_weekly": {
+      "type": "string",
+      "title": "Weekly bar colour",
+      "description": "A theme key (autoAccept, claude, suggestion, ...), a colour name (green) or hex (#4eba65).",
+      "default": "autoAccept"
+    },
+    "bar_color_five_hour": {
+      "type": "string",
+      "title": "Five-hour bar colour",
       "description": "A theme key, a colour name or hex.",
+      "default": "suggestion"
+    },
+    "bar_color_context": {
+      "type": "string",
+      "title": "Context bar colour",
+      "description": "A theme key, a colour name or hex.",
+      "default": "claude"
+    },
+    "bar_color_warning": {
+      "type": "string",
+      "title": "Weekly bar's warned days",
+      "description": "The last 3 days of the weekly bar when the week is being used up ahead of time: a theme key, a colour name or hex.",
       "default": "error"
     },
     "bar_color_empty": {
@@ -56,7 +112,14 @@
       "type": "string",
       "title": "Prompt cache lifetime",
       "description": "How long the API keeps the prompt cache after a reply: 1h (subscriptions) or 5m (API keys, usage overage).",
+      "options": ["1h", "5m"],
       "default": "1h"
+    },
+    "keep_spinner": {
+      "type": "boolean",
+      "title": "Keep the spinner line",
+      "description": "Leave Claude Code's own spinner line in place above the band. Off, Clawd is the only thing that moves.",
+      "default": false
     }
   }
 }

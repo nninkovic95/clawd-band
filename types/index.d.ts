@@ -1,5 +1,6 @@
 export type Pose =
   | 'idle'
+  | 'waiting'
   | 'thinking'
   | 'questioning'
   | 'working'
@@ -8,6 +9,11 @@ export type Pose =
   | 'running'
   | 'searching'
   | 'delegating'
+  | 'compacting'
+  | 'finished'
+  | 'interrupted'
+  | 'refused'
+  | 'failed'
 
 export type Window = { percentUsed: number; resetsAt: string | null }
 

@@ -15,13 +15,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ART_HEIGHT, ART_WIDTH, FRAMES, PIXEL_WIDTH, SCALE } from '../hooks/sprite.ts'
+import { PICTURE_HEIGHT, PICTURE_WIDTH, CLAUDE_ORANGE, picturesIn, PICTURE_ROWS, PIXEL_WIDTH, POSES, SCALE, TEXT_COLUMNS } from '../hooks/sprite.ts'
 
-type Pose = keyof typeof FRAMES
+type Pose = keyof typeof POSES
+
+const picture = picturesIn(CLAUDE_ORANGE)
 
 // Layout, as in hooks/register.tsx.
-const SPRITE_COLUMNS = 12
-const SPRITE_ROWS = 3
+const SPRITE_COLUMNS = TEXT_COLUMNS
+const SPRITE_ROWS = PICTURE_ROWS
 const FRAME_MS = 400
 const LABEL = 3
 const PERCENT = 5
@@ -137,11 +139,11 @@ const cuts = (col: number, row: number, width: number, filled: number): string =
 
 const sprite = (rgbaBase64: string, col: number, row: number): string => {
   const px = Buffer.from(rgbaBase64, 'base64')
-  const w = (SPRITE_COLUMNS * CELL_W) / ART_WIDTH
-  const h = (SPRITE_ROWS * CELL_H) / ART_HEIGHT
+  const w = (SPRITE_COLUMNS * CELL_W) / PICTURE_WIDTH
+  const h = (SPRITE_ROWS * CELL_H) / PICTURE_HEIGHT
   let out = ''
-  for (let y = 0; y < ART_HEIGHT; y++) {
-    for (let x = 0; x < ART_WIDTH; x++) {
+  for (let y = 0; y < PICTURE_HEIGHT; y++) {
+    for (let x = 0; x < PICTURE_WIDTH; x++) {
       const i = ((y * SCALE + 2) * PIXEL_WIDTH + (x * SCALE + 2)) * 4
       if (px[i + 3] === 0) continue
       const fill = `rgb(${px[i]},${px[i + 1]},${px[i + 2]})`
@@ -153,10 +155,9 @@ const sprite = (rgbaBase64: string, col: number, row: number): string => {
 
 const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): string => {
   const caption = `${MODEL} ${EFFORT}`
-  const left = Math.max(SPRITE_COLUMNS + 1, caption.length)
+  const left = Math.max(TEXT_COLUMNS + 1, caption.length)
   const barWidth = Math.max(4, COLUMNS - left - 1 - LABEL - PERCENT - RESET)
   const elapsed = Math.floor(elapsedMs / 1000)
-  const frames = FRAMES[scene.pose]
 
   const bar = (row: number, label: string, percent: number, timer: string, color?: string) => {
     const col = left + 1
@@ -178,7 +179,7 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
   const height = rows * CELL_H + PAD * 2
   const captionCol = Math.floor((left - caption.length) / 2)
   const body =
-    sprite(frames[frame % frames.length], Math.floor((left - SPRITE_COLUMNS) / 2), 0) +
+    sprite(picture(scene.pose, 0, frame), Math.floor((left - SPRITE_COLUMNS) / 2), 0) +
     runs(captionCol, 3, [
       { text: MODEL, color: THEME.text, bold: true },
       { text: ` ${EFFORT}`, color: THEME.dim },

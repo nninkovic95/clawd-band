@@ -1,5 +1,5 @@
 // Renders the plugin directory icon, .claude-plugin/icon.png (1024 x 1024):
-// Clawd from the idle frame in hooks/sprite.ts, standing on a usage bar.
+// the plain Clawd of hooks/sprite.ts, standing on a usage bar.
 //
 // Run from the repository root: node scripts/render-icon.ts
 // Needs node 23.6+ (type stripping) and rsvg-convert.
@@ -9,7 +9,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ART_HEIGHT, ART_WIDTH, FRAMES, PIXEL_WIDTH, SCALE } from '../hooks/sprite.ts'
+import { PICTURE_HEIGHT, PICTURE_WIDTH, CLAUDE_ORANGE, picturesIn, PIXEL_WIDTH, SCALE } from '../hooks/sprite.ts'
 
 const SIZE = 1024
 const UNIT = 44 // one art pixel
@@ -18,11 +18,11 @@ const UNIT = 44 // one art pixel
 const BAR = ['rgb(78,186,101)', 'rgb(255,193,7)', 'rgb(255,107,128)']
 const TRACK = 'rgb(58,58,64)'
 
-// The idle frame's art pixels, cropped to Clawd.
-const px = Buffer.from(FRAMES.idle[0], 'base64')
+// The plain body's art pixels, cropped to Clawd.
+const px = Buffer.from(picturesIn(CLAUDE_ORANGE)('plain', 0, 0), 'base64')
 const art: { x: number; y: number; fill: string }[] = []
-for (let y = 0; y < ART_HEIGHT; y++) {
-  for (let x = 0; x < ART_WIDTH; x++) {
+for (let y = 0; y < PICTURE_HEIGHT; y++) {
+  for (let x = 0; x < PICTURE_WIDTH; x++) {
     const i = ((y * SCALE + 2) * PIXEL_WIDTH + (x * SCALE + 2)) * 4
     if (px[i + 3] !== 0) art.push({ x, y, fill: `rgb(${px[i]},${px[i + 1]},${px[i + 2]})` })
   }

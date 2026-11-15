@@ -1,9 +1,14 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PluginOptions, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, Timer, TurnCompleteReason } from 'claude-code'
 
-import type { Model, Pose, Window } from '../types'
-import { ALT, CLAUDE_ORANGE, frameAt, FRAMES, framesFor, PIXEL_HEIGHT, PIXEL_WIDTH, TEXT_CLAWD } from './sprite'
-import type { Rgb } from './sprite'
+import type { Model, Pose } from '../types'
+import { band, fit, rowsOf } from './band'
+import type { Clawd } from './band'
+import { play, RULES, start, view, want } from './pose'
+import type { Flow, Rules } from './pose'
+import { settings } from './settings'
+import { picturesIn, PIXEL_HEIGHT, PIXEL_WIDTH, POSES, SCENES, textIn } from './sprite'
+import type { Scene, TextFrame } from './sprite'
 import { field, resetExpired, setUsage, syncUsage } from './usage'
 
 const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
@@ -13,11 +18,8 @@ const modelAtom = atom({ plugin: 'clawd-band', key: 'model' } as const, { name: 
 // When the main thread's last reply came back: the prompt cache's clock.
 const cacheAtom = atom({ plugin: 'clawd-band', key: 'cacheAt' } as const, null)
 
-const SPRITE_COLUMNS = 12
-const SPRITE_ROWS = 3
 const FRAME_MS = 400 // stop-motion: a few frames, each held
-const PERCENT = 5 // " 100%"
-const RESET = 12 // " 06d-23h-59m" or " 04h-59m-59s": one width for every row
+const GLANCE_MS = 1_000 // how long a subagent's tool stays wanted as a glance
 const DOCS_PREFIX = 'mcp__claude_ai_Claude_Docs__'
 
 const READING = ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'ToolSearch']
@@ -38,53 +40,18 @@ export const poseFor = (tool: string): Pose => {
   return 'working'
 }
 
-// The weekly window as `06d-18h-44m`, the five-hour one as `03h-33m-24s`: the
-// same width, so the two countdowns line up under each other. Both ends are
-// cut to whole seconds, so every countdown steps when the clock's second does.
-export const countdown = (resetsAt: string | null | undefined, now: number, withDays = false): string => {
-  if (!resetsAt) return withDays ? '--d---h---m' : '--h---m---s'
-  const total = Math.max(0, Math.floor(Date.parse(resetsAt) / 1000) - Math.floor(now / 1000))
-  const two = (n: number) => String(n).padStart(2, '0')
-  const minutes = Math.floor((total % 3600) / 60)
-  // Not `h`: in a .tsx file that name is the JSX factory.
-  if (withDays) return `${two(Math.floor(total / 86400))}d-${two(Math.floor((total % 86400) / 3600))}h-${two(minutes)}m`
-  return `${two(Math.floor(total / 3600))}h-${two(minutes)}m-${two(total % 60)}s`
+// How a turn ended, as the pose that plays once after it.
+const ENDINGS: Record<TurnCompleteReason, Pose> = {
+  answer: 'finished',
+  aborted: 'interrupted',
+  refusal: 'refused',
+  error: 'failed',
 }
 
-// The prompt cache's time left: `00h-59m-12s` while warm, `cold` once the
-// entry has lapsed, dashes before the first reply.
-export const cacheCountdown = (cacheAt: number | null | undefined, ttlMs: number, now: number): string => {
-  if (!cacheAt) return countdown(null, now)
-  const expires = cacheAt + ttlMs
-  return expires <= now ? 'cold' : countdown(new Date(expires).toISOString(), now)
-}
-
-// The context window's size as the row's label: 1000000 -> "1m", 200000 -> "200k".
-export const windowLabel = (tokens: number | null | undefined): string => {
-  if (!tokens || tokens <= 0) return 'cx'
-  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}m`
-  return `${Math.round(tokens / 1000)}k`
-}
-
-export type Run = { text: string; part: 'filled' | 'empty' | 'mark' }
-
-// A bar's cells as runs of one kind: `█` filled, `░` empty. A bar cut into
-// `segments` (the weekly bar, one per day) marks each boundary only lightly:
-// `▉`'s thin gap in the fill, a thin `│` in the text colour (a `mark`) in the empty part.
-export const barRuns = (width: number, filled: number, segments = 1): Run[] => {
-  const cuts = new Set<number>()
-  for (let i = 1; i < segments; i++) cuts.add(Math.round((i * width) / segments))
-  const runs: Run[] = []
-  for (let cell = 0; cell < width; cell++) {
-    const isCut = cuts.has(cell)
-    const part = cell < filled ? 'filled' : isCut ? 'mark' : 'empty'
-    const char = part === 'filled' ? (isCut ? '▉' : '█') : part === 'mark' ? '│' : '░'
-    const last = runs[runs.length - 1]
-    if (last && last.part === part) last.text += char
-    else runs.push({ text: char, part })
-  }
-  return runs
-}
+// What the band shows for a pose. A turn's pose outside a turn is rest, so a
+// turn end that was missed, or a reload, cannot leave Clawd at work.
+export const shownPose = (pose: Scene, isWorking: boolean): Scene =>
+  isWorking || SCENES[pose].outsideTurn ? pose : 'idle'
 
 const EFFORT_HINT = /\s*(?:·\s*)?●?\s*\b(?:low|medium|high|xhigh|max)\s*·\s*\/effort\b(?:\s*·)?\s*/
 
@@ -120,69 +87,43 @@ async function refreshUsage($: EngineInterface) {
   await setUsage($, rateLimits, await $.clock.now())
 }
 
-// The person's userConfig values (plugin.json), checked: a colour that is not
-// a theme key, a colour name or hex falls back to its default.
-export type Settings = {
-  showModel: boolean
-  spriteColor: string
-  spriteRgb: Rgb
-  low: string
-  mid: string
-  high: string
-  empty: string
-  cold: string
-  cacheTtlMs: number
-}
-
-const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i
-const COLOR = /^([a-z]+|#[0-9a-f]{3}|#[0-9a-f]{6})$/i // a theme key, a colour name, or hex
-
-const toRgb = (hex: string): Rgb | null => {
-  const short = HEX.exec(hex.trim())?.[1]
-  if (!short) return null
-  const digits = short.length === 3 ? [...short].map(d => d + d).join('') : short
-  const channel = (at: number) => parseInt(digits.slice(at, at + 2), 16)
-  return [channel(0), channel(2), channel(4)]
-}
-
-const textColor = (value: unknown, fallback: string): string =>
-  typeof value === 'string' && COLOR.test(value.trim()) ? value.trim() : fallback
-
-export const settings = (options: PluginOptions): Settings => {
-  const parsed = typeof options.sprite_color === 'string' ? toRgb(options.sprite_color) : null
-  const custom = parsed && parsed.join() !== CLAUDE_ORANGE.join() ? parsed : null
-  const spriteRgb = custom ?? CLAUDE_ORANGE
-  return {
-    showModel: options.show_model !== false,
-    // The text logo shown while a question is open: the theme's own Claude
-    // colour unless the sprite has one of its own.
-    spriteColor: custom ? `#${custom.map(c => c.toString(16).padStart(2, '0')).join('')}` : 'claude',
-    spriteRgb,
-    low: textColor(options.bar_color_low, 'success'),
-    mid: textColor(options.bar_color_mid, 'warning'),
-    high: textColor(options.bar_color_high, 'error'),
-    empty: textColor(options.bar_color_empty, 'inactive'),
-    cold: textColor(options.bar_color_cold, 'blue'),
-    // The API keeps a cache entry 5 minutes or an hour; the mod cannot see which.
-    cacheTtlMs: options.cache_ttl === '5m' ? 5 * 60_000 : 60 * 60_000,
-  }
-}
-
 // Set by register from the person's options; a change there reloads the module.
 let config = settings({})
-let frames = FRAMES
+let drawPicture = picturesIn(config.spriteRgb)
+let drawText = textIn(config.spriteColor)
 
-export const barColor = (percent: number, colors: Settings = config) =>
-  percent >= 85 ? colors.high : percent >= 60 ? colors.mid : colors.low
+// The pose rules, with the person's say on motion.
+const rulesOf = (): Rules => ({ ...RULES, animate: config.animate, vary: config.randomPoses })
+let rules = rulesOf()
+
+const newFlow = (pose?: Pose): Flow => start(Math.floor(Math.random() * 0x7fffffff), pose)
 
 // The timer reads these between draws; a reload starts them over.
 const live: {
-  pose: Pose
-  isWorking: boolean
+  // What the band draws: the pose or the plain body between two, its variant
+  // and its frame, as `flow` shows them.
+  pose: Scene
+  roll: number
   frame: number
+  // Which pose shows when: the wanted poses go in, the three values above come out.
+  flow: Flow
+  // The pose the session is in: what was last asked for, which the screen follows.
+  wanted: Pose
+  // The pose the conversation itself last took, under any a subagent set.
+  main: Pose
+  // Counts the times the pose was set: see setPose.
+  claim: number
+  // The conversation's own tool calls still running, oldest first.
+  tools: { pose: Pose; claim: number }[]
+  isCompacting: boolean
+  isWorking: boolean
   bandId: string | null
-  isAsking: boolean
   isText: boolean
+  // The form the band last drew Clawd in: it picks what fits its width.
+  form: 'picture' | 'text' | null
+  drawn: TextFrame | null
+  // The picture last sent to the band, so an unchanged frame is not sent again.
+  sent: string | null
   refusals: number
   sessionId: string | null
   isModelLoaded: boolean
@@ -191,11 +132,20 @@ const live: {
   second: number
 } = {
   pose: 'idle',
-  isWorking: false,
+  roll: 0,
   frame: 0,
+  flow: newFlow(),
+  wanted: 'idle',
+  main: 'idle',
+  claim: 0,
+  tools: [],
+  isCompacting: false,
+  isWorking: false,
   bandId: null,
-  isAsking: false,
   isText: false,
+  form: null,
+  drawn: null,
+  sent: null,
   refusals: 0,
   sessionId: null,
   isModelLoaded: false,
@@ -204,13 +154,42 @@ const live: {
   second: 0,
 }
 
-const shown = (): Pose => (live.isWorking ? live.pose : 'idle')
+const shown = (): Scene => shownPose(live.pose, live.isWorking)
 
-async function setPose($: EngineInterface, next: Pose) {
-  if (next === live.pose) return
-  live.pose = next
-  live.frame = 0
-  await update($, poseAtom, () => next)
+// Clawd as text: the person's choice, or a terminal that refused the picture.
+const inText = (): boolean => config.sprite === 'text' || live.isText
+
+// Copies what the flow shows into the values the band draws from, and answers
+// whether any of them changed.
+const show = (): boolean => {
+  const { pose, roll, frame } = view(live.flow, rules)
+  const isChanged = pose !== live.pose || roll !== live.roll || frame !== live.frame
+  live.pose = pose
+  live.roll = roll
+  live.frame = frame
+  return isChanged
+}
+
+// The one place the pose changes: what the flow is asked for, and the state
+// other mods can read, which is the wanted pose, ahead of the screen. It
+// answers a number that stays `live.claim` until the pose is set again, so
+// whoever set a pose can hand it back only while it is still theirs.
+async function setPose($: EngineInterface, next: Pose, isSubagent = false): Promise<number> {
+  live.claim += 1
+  const claim = live.claim
+  if (!isSubagent) live.main = next
+  live.flow = want(live.flow, next, isSubagent, rules)
+  // Only a pose that cuts in changes the screen here; any other waits for a tick.
+  if (show()) $.ui.invalidate('ui.render')
+  if (next !== live.wanted) {
+    live.wanted = next
+    await update($, poseAtom, () => next)
+  }
+  return claim
+}
+
+async function handBack($: EngineInterface, claim: number, next: Pose) {
+  if (live.claim === claim) await setPose($, next)
 }
 
 // How the engine words its refusal to swap a picture the terminal cannot draw:
@@ -218,14 +197,24 @@ async function setPose($: EngineInterface, next: Pose) {
 const NO_PICTURE = 'the Image draws its alt here'
 const REFUSALS = 3 // in a row: the first swaps can come before the terminal has answered
 
-// The next frame of the pose. After a few refusals in a row the band gives up
-// on the picture and draws the text Clawd until the module loads again.
-async function swapFrame($: EngineInterface) {
-  // Frozen while a question dialog is open: frame swaps kept it from showing as a menu.
-  if (!live.bandId || live.isAsking || live.isText) return
-  const source = { rgba: frameAt(frames[shown()], live.frame), width: PIXEL_WIDTH, height: PIXEL_HEIGHT }
+// The next frame of the pose: a picture swapped in place, or, where Clawd is
+// text, a redraw once the text on screen is no longer the frame to show.
+// After a few refusals in a row the band gives up on the picture and draws
+// the text Clawd until the module loads again.
+async function showFrame($: EngineInterface) {
+  if (!live.bandId || config.sprite === 'off') return
+  if (live.form === 'text') {
+    if (drawText(shown(), live.roll, live.frame) !== live.drawn) $.ui.invalidate('ui.render')
+    return
+  }
+  if (live.form !== 'picture') return
+  const rgba = drawPicture(shown(), live.roll, live.frame)
+  if (rgba === live.sent) return
+  const source = { rgba, width: PIXEL_WIDTH, height: PIXEL_HEIGHT }
   // A band taken down between draws refuses too; the next render places it again.
   const answer = await $.ui.blit({ requestId: live.bandId, key: 'clawd', source }).catch(() => null)
+  // Only a picture the band took counts as sent: one it refused goes again.
+  live.sent = answer !== null && answer.deny === undefined ? rgba : null
   if (answer?.deny === undefined) live.refusals = 0
   else if (answer.deny.includes(NO_PICTURE)) live.refusals += 1
   if (live.refusals < REFUSALS) return
@@ -258,32 +247,51 @@ async function everySecond($: EngineInterface, now: number) {
       () => undefined,
     )
   }
-  await syncUsage($, now, id)
+  // The account is asked only for a row that shows.
+  if (config.showWeekly || config.showFiveHour) await syncUsage($, now, id)
 }
 
 // One timer drives the band: a frame each period and, when the clock's second
 // changes, the once-a-second work and a redraw for the countdowns.
 async function tick($: EngineInterface) {
   live.tickedAt = Date.now()
-  live.frame += 1
+  const drawn = live.pose
+  live.flow = play(live.flow, rules)
+  show()
+  // A new pose is drawn again whole, so the picture's alt and the next
+  // repaint are of the pose on screen; its frames after that are swapped in.
+  if (live.pose !== drawn) $.ui.invalidate('ui.render')
+  // A pose that plays once has played and Clawd rests: the session is at rest too.
+  if (POSES[live.wanted].once && live.flow.pose === 'idle') await setPose($, 'idle')
+  // A compaction whose end the spinner did not tell: no turn is running, so it is over.
+  if (live.main === 'compacting' && !live.isWorking) await setPose($, 'idle')
   const now = await $.clock.now()
   const second = Math.floor(now / 1000)
   if (second !== live.second) {
     live.second = second
     void everySecond($, now).catch(() => undefined)
-    // Held still while a question dialog is open.
-    if (!live.isAsking) $.ui.invalidate('ui.render')
+    $.ui.invalidate('ui.render')
   }
-  await swapFrame($)
+  await showFrame($)
 }
 
 const STALLED_MS = 2_000
+
+const seedPose = (pose: Pose) => {
+  if (live.claim > 0) return
+  live.wanted = pose
+  live.main = pose
+  live.flow = newFlow(pose)
+  show()
+}
 
 // Called by every hook. A resumed session can load the module without raising
 // session.start, and a timer period the engine refuses ends that timer: the
 // first hook to run starts the timer, and any later one restarts a stalled one.
 function ensureStarted($: EngineInterface) {
   if (live.timer && Date.now() - live.tickedAt < STALLED_MS) return
+  // A module loaded again mid-session takes up the pose the last one left.
+  if (!live.timer) void read($, poseAtom).then(seedPose, () => undefined)
   live.timer?.cancel()
   live.tickedAt = Date.now()
   live.timer = $.clock.every(FRAME_MS, () => void tick($).catch(() => undefined))
@@ -293,7 +301,9 @@ function ensureStarted($: EngineInterface) {
 
 export const register: Register = (on, options) => {
   config = settings(options)
-  frames = config.spriteRgb === CLAUDE_ORANGE ? FRAMES : framesFor(config.spriteRgb)
+  drawPicture = picturesIn(config.spriteRgb)
+  drawText = textIn(config.spriteColor)
+  rules = rulesOf()
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -309,17 +319,21 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     ensureStarted($)
-    await setPose($, 'working')
+    // A subagent's turn is not the conversation's. The turn opens on the
+    // wait for its first reply, the pose its first step asks for too.
+    if (e.agentId === undefined) await setPose($, 'waiting')
     return next(e)
   })
 
   // The main thread's stream says when the model is thinking, writing, or
-  // starting a tool call; subagents' streams are passed through untouched.
+  // starting a tool call, and until its first word Clawd waits; subagents'
+  // streams are passed through untouched.
   on('turn.step', async function* ($, e, next) {
     ensureStarted($)
     const stream = next(e)
     if (e.agentId) return yield* stream
     await setModel($, { name: e.model, effort: e.effort === undefined ? undefined : String(e.effort) })
+    await setPose($, 'waiting')
     for await (const chunk of stream) {
       if (chunk.kind === 'thinking') await setPose($, 'thinking')
       else if (chunk.kind === 'text') await setPose($, 'working')
@@ -339,36 +353,59 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     ensureStarted($)
     const tool = String(e.tool)
-    await setPose($, poseFor(tool))
-    // The band holds still while the question dialog is open (one redraw for
-    // the pose, then no frame swaps or countdown ticks until it closes).
-    const isQuestion = tool === 'AskUserQuestion'
-    if (isQuestion) {
-      live.isAsking = true
-      $.ui.invalidate('ui.render')
+    if (e.agentId !== undefined) {
+      // The turn's ending plays through: a subagent still at work does not cut it short.
+      if (POSES[live.main].once) return next(e)
+      // A subagent's tool gets a glance; then Clawd is back at what the
+      // conversation itself is doing, unless that has moved on meanwhile.
+      const claim = await setPose($, poseFor(tool), true)
+      $.clock.after(GLANCE_MS, () => void handBack($, claim, live.main).catch(() => undefined))
+      return next(e)
     }
+    const running = { pose: poseFor(tool), claim: 0 }
+    running.claim = await setPose($, running.pose)
+    live.tools.push(running)
     try {
       return await next(e)
     } finally {
-      if (isQuestion) {
-        live.isAsking = false
-        $.ui.invalidate('ui.render')
+      live.tools = live.tools.filter(other => other !== running)
+      // A tool that ends late leaves a newer pose be. One that still has the
+      // pose hands it to a tool running beside it, which holds it from then
+      // on, or else to the wait for the next reply.
+      const beside = live.tools.at(-1)
+      if (live.claim === running.claim) {
+        const claim = await setPose($, beside?.pose ?? 'waiting')
+        if (beside) beside.claim = claim
       }
-      await setPose($, 'working')
     }
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
     ensureStarted($)
-    await setPose($, 'idle')
+    // Only the conversation's own turn has an ending; `reason` is all that is read of it.
+    // With the endings turned off, the turn's end is rest.
+    if (e.agentId === undefined) await setPose($, config.turnEndings ? ENDINGS[e.reason] : 'idle')
     await refreshUsage($).catch(() => undefined)
     return next(e)
   })
 
-  // The sprite is the only thing moving: the native spinner draws empty.
+  // The sprite is the only thing moving: the native spinner draws empty,
+  // unless the person keeps it. Its message is the one sign of a compaction
+  // a mod is given.
   on('ui.render', { component: 'Spinner' }, ($, e, next) => {
     ensureStarted($)
-    if (e.surface !== 'terminal') return next(e)
+    const isCompacting = /compact/i.test(e.props.message ?? '')
+    if (isCompacting !== live.isCompacting) {
+      live.isCompacting = isCompacting
+      const turnPose = async () => {
+        if (isCompacting) await setPose($, 'compacting')
+        // The turn goes on with a new reply to wait for; with no turn, Clawd rests.
+        else if (live.main === 'compacting') await setPose($, live.isWorking ? 'waiting' : 'idle')
+      }
+      // After the draw: state set while a hook draws is dropped.
+      $.clock.after(0, () => void turnPose().catch(() => undefined))
+    }
+    if (e.surface !== 'terminal' || config.keepSpinner) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
@@ -389,93 +426,30 @@ export const register: Register = (on, options) => {
 
     live.bandId = e.requestId
     live.isWorking = e.props.isWorking
-    live.pose = await read($, poseAtom)
     const now = await $.clock.now()
     // A window that resets mid-session drops to 0% on the next tick, not the next reply.
     const usage = resetExpired(await read($, usageAtom), now)
     const model = await read($, modelAtom)
     const cacheAt = await read($, cacheAtom)
     const context = (await $.session.usage().catch(() => null))?.context
-    const { Box, Text, Image } = $.ui.resolve(e)
 
     const current = shown()
-    const modelName = model.name ? shortModel(model.name) : '--'
-    const caption = model.effort ? `${modelName} ${model.effort}` : modelName
-    const left = config.showModel ? Math.max(SPRITE_COLUMNS + 1, caption.length) : SPRITE_COLUMNS + 1
-    const contextLabel = windowLabel(context?.window)
-    const label = Math.max(2, contextLabel.length) + 1 // "7d " or "200k "
-    const barWidth = Math.max(4, e.props.bodyColumns - left - 1 - label - PERCENT - RESET)
-
-    const row = (
-      name: string,
-      percent: number | null | undefined,
-      timer: string,
-      isLive: boolean,
-      color?: string,
-      segments = 1,
-    ) => {
-      const fill = percent ?? 0
-      const filled = Math.min(barWidth, Math.round((fill / 100) * barWidth))
-      return (
-        <Box flexDirection="row">
-          <Text dimColor>{name.padEnd(label)}</Text>
-          {barRuns(barWidth, filled, segments).map(run => (
-            run.part === 'mark' ? (
-              <Text>{run.text}</Text>
-            ) : (
-              <Text color={run.part === 'filled' ? (color ?? barColor(fill)) : config.empty}>{run.text}</Text>
-            )
-          ))}
-          <Text dimColor={percent == null}>{percent == null ? '   --' : ` ${String(Math.round(fill)).padStart(3)}%`}</Text>
-          <Text> </Text>
-          <Text bold={isLive || !!color} color={color} dimColor={!isLive && !color}>
-            {timer.padStart(RESET - 1)}
-          </Text>
-        </Box>
-      )
+    // No picture where the terminal draws none.
+    const text = drawText(current, live.roll, live.frame)
+    const picture = inText() ? null : { rgba: drawPicture(current, live.roll, live.frame), alt: SCENES[current].alt }
+    const clawd: Clawd | null = config.sprite === 'off' ? null : { text, picture }
+    const name = model.name ? shortModel(model.name) : '--'
+    const rows = rowsOf({ usage, context, cacheAt, now }, config)
+    // Everything turned off: the row above the prompt is not the mod's.
+    if (!clawd && !config.showModel && rows.length === 0) return next(e)
+    const view = {
+      columns: e.props.bodyColumns,
+      clawd,
+      model: config.showModel ? { name, effort: model.effort } : null,
+      rows,
     }
-    // The weekly bar is cut into its seven days.
-    const bar = (name: string, window: Window | null | undefined, withDays = false) =>
-      row(name, window?.percentUsed, countdown(window?.resetsAt, now, withDays), !!window?.resetsAt, undefined, withDays ? 7 : 1)
-    const cacheTimer = cacheCountdown(cacheAt, config.cacheTtlMs, now)
-    const isCold = cacheTimer === 'cold'
-
-    return (
-      // The bars hang from the bottom: the two usage rows sit where they always
-      // did beside the sprite, the context row on the model line under them.
-      <Box flexDirection="row" alignItems="flex-end">
-        <Box flexDirection="column" width={left} alignItems="center">
-          {live.isAsking || live.isText ? (
-            // Clawd as the CLI's text logo: where the terminal draws no
-            // picture, and while a question menu is open, since a kitty image
-            // sits on a layer above the text and covered the menu.
-            <Box flexDirection="column">
-              {TEXT_CLAWD.map(line => (
-                <Text color={config.spriteColor}>{line}</Text>
-              ))}
-            </Box>
-          ) : (
-            <Image
-              key="clawd"
-              source={{ rgba: frameAt(frames[current], live.frame), width: PIXEL_WIDTH, height: PIXEL_HEIGHT }}
-              columns={SPRITE_COLUMNS}
-              rows={SPRITE_ROWS}
-              alt={ALT[current]}
-            />
-          )}
-          {config.showModel ? (
-            <Box key="model" flexDirection="row">
-              <Text bold>{modelName}</Text>
-              {model.effort ? <Text dimColor> {model.effort}</Text> : null}
-            </Box>
-          ) : null}
-        </Box>
-        <Box flexDirection="column" marginLeft={1}>
-          {bar('7d', usage?.sevenDay, true)}
-          {bar('5h', usage?.fiveHour)}
-          {row(contextLabel, context?.percent, cacheTimer, cacheAt != null && !isCold, isCold ? config.cold : undefined)}
-        </Box>
-      </Box>
-    )
+    live.form = fit(view)?.form ?? null
+    live.drawn = live.form === 'text' ? text : null
+    return band(view, config, $.ui.resolve(e))
   })
 }
