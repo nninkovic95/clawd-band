@@ -11,21 +11,33 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 ## The band
 
 ```
- ┌──── Clawd ───┐  7d (████│███░│░░░░│░░░░│░░░░│░░░░│░░░░)  26% 04d-07h-31m
- │    16 × 3    │  5h (█████████████░░░░░░░░░░░░░░░░░░░░░)  38% 02h-14m-09s
- └──────────────┘  1m (████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░)  12% 00h-47m-03s
+ ┌──── Clawd ───┐  7d ·(████│███░│░░░░│░░░░│░░░░│░░░░│░░░░)· 26% 04d-07h-31m
+ │    16 × 3    │  5h ·(█████████████░░░░░░░░░░░░░░░░░░░░░)· 38% 02h-14m-09s
+ └──────────────┘  1m ·(▮▮▮▮▮▮░░░░░░░░[░░░░░░░▮░░░░░░░░░░])· 12% 00h-47m-03s
  Opus 5.5 · high
 ```
 
 - **Clawd**: drawn with kitty's graphics protocol in a box of 16 columns by 3 rows, in stop-motion (a few frames, each held for 400 ms). He is the only thing that moves: the mod replaces Claude Code's own spinner with an empty box. Where the terminal draws no picture, the band draws him in text instead: the same frames in the block characters of Claude Code's own logo, 14 columns by 3 rows, and he moves there too. The text Clawd is the drawing's lower three rows, so what a pose holds above his head shows in the picture only.
 - **Model and effort**: the session's model, shortened (`claude-opus-5-5` becomes `Opus 5.5`), then the reasoning effort.
 - **Usage bars**: `7d` is the weekly window, cut into its seven days, and `5h` the five-hour window. Each bar keeps its own colour at any level. The one change is on the weekly bar: once the week is in its last three days and you are using it faster than an even share per day, the unused part of those three days turns to the warning colour.
-- **Context bar**: how full the context window is, the same figure as the status line's `used_percentage`, labelled with the window's size (`1m`, `200k`). Before a session's first reply Claude Code has no such figure, so the bar shows the local estimate that `/context` makes. Beside it, a countdown runs until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses, the bar and the countdown turn blue and the countdown reads `cold`; the next request re-sends the whole context at the cache-write price.
+- **Context bar**: the context window, labelled with its size (`1m`, `200k`). The percentage beside it is how full the window is, the same figure as the status line's `used_percentage`; before a session's first reply Claude Code has no such figure, so it is the local estimate that `/context` makes. Beside that, a countdown runs until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses, the countdown turns blue and reads `cold`; the next request re-sends the whole context at the cache-write price. What the bar itself shows is under [The context bar](#the-context-bar).
 - **Countdown**: the time to each window's reset, `04d-07h-31m` for the weekly window and `02h-14m-09s` for the five-hour one. Both are 11 characters wide, so they line up under each other. A window nothing is known of shows `--d---h---m` or `--h---m---s`. A window whose reset time has passed shows 0% and `reset` until the next reply opens a new one.
+- **A dot either side of each bar** leads the eye from a row's label to its bar and on to its figures.
+- **Under the pointer**: point at a row and the band's top row says more about it. For the week and the five hours: how much is used, when the window resets by your clock and, for the week, how long what is left lasts at the pace so far. For the context: its tokens and where auto-compaction runs. Nothing is fetched for this; the lines are drawn with the band and shown by the terminal. It needs a terminal that reports the pointer to Claude Code, and has been tried in kitty.
 
 With the default `pill` style each bar is a picture too: a rounded bar whose unfilled part lets the terminal show through, the fill inside a thin clear ring, and thin clear lines between the week's days. Where the terminal draws no picture, the bars are drawn in text.
 
 In a narrow window the band gives way in this order: the countdowns lose their smallest unit, then go; Clawd turns to text, then hides. A bar is never shorter than 4 cells.
+
+### The context bar
+
+The context bar shows three things besides how full the window is. All three come from the breakdown `/context` shows, which Claude Code works out on your machine.
+
+- **What the session loaded.** At the bar's start stands a little bar for each kind of memory the session held before the conversation began: the system prompt, the tools, MCP servers, custom agents, memory files and skills, in `/context`'s order and colours. One too small to see is drawn at a least length, so the little bars overstate small amounts; the percentage is always the true figure. In the text styles each is one cell. On a bar too short for them, one little bar stands for all of it.
+- **Auto-compaction.** A short grey pill marks the point where Claude Code compacts the conversation by itself. It is absent where auto-compaction is off. Bars drawn in text do not show it.
+- **Dumb Memory.** A frame inside the bar marks the stretch where answers are expected to get worse: it starts at what the session loaded plus 40% of the room left after that, and runs to the window's end. This is a rule of thumb, not a measurement: where a model's answers start to slip differs by model and by task, and nobody has published a table. While the session is short of the frame it is black, and the bar shows no fill for the conversation. Once the session is inside, the conversation's fill appears in the warning colour, striped black within the frame, and the words `Dumb Memory` stand above the bar. Press them for a panel that lists the context by category, says where the zone starts for this session and how far in you are, and offers `/usage`. The way out is `/compact` or a new session. Point at the framed part of the bar to read where the zone starts. Bars drawn in text show the fill and the words, not the frame.
+
+With `context_detail` off the context bar is one fill in one colour, as it was before 0.4.1, and the breakdown is not asked for.
 
 ## Why use it
 
@@ -37,7 +49,7 @@ It does not track cost or keep a history, and the band is drawn in the terminal 
 
 - **Claude Code with mods** (function-hook plugins): tested on 2.1.325. Older builds are untested.
 - **Any terminal** for the band itself. Pictures (Clawd, and the bars in the `pill` style) need the kitty graphics protocol and have been tested in [kitty](https://sw.kovidgoyal.net/kitty/). Elsewhere Clawd and the bars are drawn in text.
-- **A [Nerd Font](https://www.nerdfonts.com/)** for bars drawn in text in the `blocks` style, which is also what `pill` falls back to: their rounded ends are the font's half-circle glyphs.
+- **A [Nerd Font](https://www.nerdfonts.com/)** for bars drawn in text in the `blocks` style, which is also what `pill` falls back to (their rounded ends are the font's half-circle glyphs), and in the `circles` style (its circles are the font's).
 - **Your terminal's cell shape**, for pictures to keep their proportions: set `cell_ratio` to how many times taller than wide one character cell is. The default `2.2` suits most fonts.
 - **For pictures in background sessions:** the environment variable `CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` for Claude Code (tested in the `env` block of managed settings). Claude Code turns pictures off in background sessions, and without the variable the band is text there. Set it only if every terminal you open sessions from draws kitty graphics.
 - **A claude.ai subscription login** (Pro or Max) for the usage bars: the five-hour and weekly windows belong to a subscription, and without one those two bars read `--`. The context bar works with any login.
@@ -97,10 +109,13 @@ The same options are the plugin's `userConfig` fields, Claude Code's standard wa
 | `show_weekly` | `true` | Shows the weekly bar. |
 | `show_five_hour` | `true` | Shows the five-hour bar. With this and the weekly bar off, the account's usage is never asked for. |
 | `show_context` | `true` | Shows the context bar and the prompt cache's countdown. |
+| `context_detail` | `true` | The context bar by category: the little bars for what the session loaded, the auto-compaction pill and Dumb Memory. Off, one fill in one colour, and the breakdown is not asked for. |
+| `show_dumb_memory` | `true` | Shows Dumb Memory: the frame, the fill that appears only inside it, and its name. Off, the context bar fills in its own colour at any level. |
+| `show_autocompact` | `true` | Shows the grey pill where auto-compaction runs. |
 | `bar_color_weekly` | `autoAccept` | The weekly bar's colour. |
 | `bar_color_five_hour` | `suggestion` | The five-hour bar's colour. |
-| `bar_color_context` | `claude` | The context bar's colour. |
-| `bar_color_warning` | `error` | The weekly bar's last three days when the week is being used up ahead of time. |
+| `bar_color_context` | `claude` | The context bar's fill, where Dumb Memory is off or the detail is. |
+| `bar_color_warning` | `error` | The weekly bar's last three days when the week is being used up ahead of time; the context bar's fill and frame once the session is in Dumb Memory. |
 | `bar_color_empty` | `inactive` | The unfilled part of each bar. |
 | `bar_color_cold` | `blue` | The context bar and its countdown once the prompt cache has gone cold. |
 | `cache_ttl` | `1h` | How long the prompt cache lives after a reply: `1h` or `5m`. Claude Code does not tell plugins which one a session gets; subscriptions get an hour, API keys and usage overage five minutes. |
@@ -116,7 +131,7 @@ A value an option does not take falls back to its default, and a cell shape outs
 | --- | --- | --- |
 | `pill` | a picture | the fill ends on the exact pixel |
 | `blocks` | solid, told apart by colour, with rounded ends | 2 |
-| `circles` | `○ ◔ ◑ ◕ ●` | 5: a cell fills by quarters |
+| `circles` | a Nerd Font's circle, two cells wide: outline, half filled, whole | 3: a circle fills by halves, and each half is a cell of its own under the pointer |
 | `dots` | `⣀ ⣤ ⣶ ⣿` | 4 |
 | `squares` | `□ ▣ ■` | 3 |
 | `line` | `─ ╾ ━` | 3 |
@@ -227,7 +242,7 @@ The percentages and reset times are the same ones `/usage` shows. The band keeps
 
 Where Claude Code refuses the account request (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set, or the session uses an API key), the first three ways are all there is: the bars follow your replies. Use on claude.ai or another device then shows up after the next reply on this machine.
 
-The context bar's figure is Claude Code's own, read each time the band is drawn. The estimate it shows before a session's first reply is worked out by Claude Code on your machine and sends no request.
+The context bar's figure is Claude Code's own, read each time the band is drawn. The breakdown by category is the estimate `/context` shows, worked out by Claude Code on your machine: the band asks for it when a session starts, after each of your own turns and at most once a minute, and it sends no request. Before a session's first reply the percentage comes from that same estimate.
 
 ## Endpoints
 
@@ -256,7 +271,7 @@ This section is clawd-band's privacy policy: what the mod reads, stores and send
 - How a turn ended (answer, interrupted, refused, error), to pick the ending, and whether an event is a subagent's.
 - The message on Claude Code's spinner, only to see whether it says a compaction is running.
 - The model name and reasoning effort, for the line under Clawd.
-- The rate-limit readings Claude Code already holds, and how full the context window is. Before a session's first reply it asks Claude Code for its local estimate of the context's size, a number of tokens.
+- The rate-limit readings Claude Code already holds, and how full the context window is. It also asks Claude Code for its local estimate of the context by category, the one `/context` shows, and reads each row's name, token count and colour, the total, and where auto-compaction runs. None of it is stored, logged or sent.
 - The session id, to notice a `/clear` (which starts a new session in the same process) and load the band again. It is never sent.
 - Claude Code's list of settings rows, when the `/clawd` panel is drawn. It uses only this mod's own rows, and changes one only when you press, pick or type in that panel.
 
@@ -282,12 +297,13 @@ Everything the mod registers with Claude Code. The hooks are in `hooks/register.
 | `turn.start` | Pose: waiting | whether the turn is a subagent's | no |
 | `turn.step` | Pose: waiting, then thinking, working or the tool being called; the model line; the cache countdown | the kind of each part of the reply, a tool's name, the model and effort, whether the reply reported usage, whether the step is a subagent's | no; the stream is passed on as it came |
 | `tool.call` | Hold the tool's pose while it runs (a subagent's as a glance) | the tool's name, whether the call is a subagent's | no; the call and its result are passed on |
-| `turn.complete` | Pose: the ending for how the turn ended; read the usage again | the reason the turn ended, whether the turn is a subagent's | no |
+| `turn.complete` | Pose: the ending for how the turn ended; read the usage again; note that the context breakdown is to be asked for again | the reason the turn ended, whether the turn is a subagent's | no |
 | `command.run` `clawd` | Open the settings panel | nothing | opens the panel; prints nothing in the transcript |
 | `ui.render` `Spinner` | Clawd is the only thing that moves; pose: compacting | the surface, whether the spinner's message says a compaction is running | draws an empty box in place of Claude Code's spinner, in the terminal, unless `keep_spinner` is on |
 | `ui.render` `PromptHint` | Drop the effort pill, which the model line already shows | the hint line's text | rewrites the hint line without the pill, only when `show_model` is on |
 | `ui.render` `AbovePrompt` | Draw the band | the band's width, whether a turn is running, whether a survey holds the band | draws the band, in the terminal; leaves it to a survey |
 | `ui.render` `Pane` `clawd-settings` | Draw the settings panel | the list of settings rows, of which it uses this mod's own | draws the panel; a press, a pick or a typed value sets that one setting |
+| `ui.render` `Pane` `clawd-context` | Draw the Dumb Memory panel | the context figure, the model, and the breakdown the band already holds | draws the panel; its one button runs `/usage` |
 
 Calls it makes on Claude Code:
 
@@ -296,18 +312,19 @@ Calls it makes on Claude Code:
 | `$.clock.every`, `$.clock.after`, `$.clock.now` | The one timer that drives the frames and the countdowns |
 | `$.state.get`, `$.state.set` | Its own state: the pose, the usage reading, the model, when the cache was last written |
 | `$.store.get`, `$.store.set` | The plugin store: the shared usage reading, the model, the diagnostic note |
-| `$.session.id`, `$.session.model`, `$.session.usage` | The session's id, model, rate-limit readings and context figure |
+| `$.session.id`, `$.session.model`, `$.session.usage` | The session's id, model, rate-limit readings and context figure, and the context's breakdown by category (the local `summary` form, which sends no request) |
 | `$.session.authorize`, `$.http.fetch` | The one request under [Endpoints](#endpoints) |
 | `$.ui.blit` | Swap Clawd's picture for the next frame; ask whether the terminal draws pictures |
 | `$.ui.invalidate`, `$.ui.resolve` | Ask for a redraw; get the terminal's elements to draw with |
 | `$.ui.log` | The debug-log line described under [Privacy](#privacy) |
 | `$.command.register` | Offer `/clawd` |
-| `$.ui.open`, `$.ui.toast` | Open the settings panel; say why a setting could not be changed |
+| `$.command.run` | Run `/usage` as if you had typed it, when you press that button in the Dumb Memory panel; never otherwise |
+| `$.ui.open`, `$.ui.toast` | Open the settings panel and the Dumb Memory panel; say why a setting could not be changed |
 | `$.config.list`, `$.config.set` | List the settings rows for the panel (it uses this mod's own); change the one you acted on |
 
-It runs no commands, reads no files and reads no environment variables.
+It runs no shell commands, reads no files and reads no environment variables. The one slash command it runs is `/usage`, on your press.
 
-Where the code lives: the band's drawing in `hooks/band.tsx`, the pill bars in `hooks/pill.ts`, the checked options in `hooks/settings.ts`, the usage readings in `hooks/usage.ts`, the sprites in `hooks/sprite.ts` and the rules for which pose shows when in `hooks/pose.ts`.
+Where the code lives: the band's drawing in `hooks/band.tsx`, the pill bars in `hooks/pill.ts`, the checked options in `hooks/settings.ts`, the usage readings in `hooks/usage.ts`, the context breakdown in `hooks/context.ts`, the two panels in `hooks/panel.tsx`, the sprites in `hooks/sprite.ts` and the rules for which pose shows when in `hooks/pose.ts`.
 
 ## Development
 
@@ -316,7 +333,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-`claude plugin test` runs six test files in `hooks/`:
+`claude plugin test` runs seven test files in `hooks/`:
 
 | File | What it covers |
 | --- | --- |
@@ -324,6 +341,7 @@ claude plugin test .
 | `options.test.tsx` | The bar styles and their steps, the choices and `random`, which rows show, Clawd as text or off, the model line, an ended window, the context estimate |
 | `picture.test.tsx` | Clawd's picture and its box, the pill bars pixel by pixel, the fall back to text and the way back, a very wide window |
 | `usage.test.tsx` | The diagnostic note for a usage bar that stays empty |
+| `context.test.tsx` | The context breakdown and when it is asked for, the little bars in every bar style, the auto-compaction pill, Dumb Memory's frame, fill and name, the lines under the pointer, the Dumb Memory panel |
 | `panel.test.tsx` | `/clawd`: the command, the panel's controls, what acting on them changes |
 | `pose.test.ts` | The pose rules with no session around them: the hold, the plain body between two poses, bursts, endings, glances, a compaction |
 
@@ -340,3 +358,7 @@ Clawd is the Claude Code mascot. This is an unofficial community project, not af
 ## License
 
 [MIT](LICENSE)
+
+## AI disclosure
+
+clawd-band is built with the assistance of AI: Claude Code, Anthropic's coding agent. A person decides what it does, tries every change on screen and reviews what ships; Claude writes the code, the tests, Clawd's pixel art and this page under that direction. Bugs are the maintainer's to answer for: [open an issue](https://github.com/nninkovic95/clawd-band/issues).
