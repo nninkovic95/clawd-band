@@ -1,6 +1,7 @@
 import type { Elements, SessionContextUsage } from 'claude-code'
 
 import type { Usage, Window } from '../types'
+import { themePaint } from './settings'
 import type { BarStyle, Paint, Settings } from './settings'
 import type { Picture, Rgba } from './picture'
 import { pill } from './pill'
@@ -47,15 +48,48 @@ export const windowLabel = (tokens: number | null | undefined): string => {
   return `${Math.round(tokens / 1000)}k`
 }
 
+// 320807 -> "320.8k", 667000 -> "667k", 1000000 -> "1M".
+export const tokensText = (tokens: number): string => {
+  const trim = (value: number) => String(Math.round(value * 10) / 10)
+  if (tokens >= 1_000_000) return `${trim(tokens / 1_000_000)}M`
+  return tokens >= 1000 ? `${trim(tokens / 1000)}k` : String(tokens)
+}
+
 // A stretch of a bar in one look; `warn` marks the weekly bar's last days when
 // the week is being used up ahead of time.
 // `behind` marks the fill's rounded end: what lies under the rest of its cell.
-export type Run = { text: string; part: 'filled' | 'empty'; warn?: true; behind?: 'empty' | 'warn' }
+// `piece` marks a cell that is a little bar of its own, by its place among them; `half`
+// a cell that is one half of a glyph two cells wide, by its place among the halves.
+export type Run = { text: string; part: 'filled' | 'empty'; warn?: true; behind?: 'empty' | 'warn'; piece?: number; half?: number }
 
 // The cell between two days of the weekly bar: left blank, a clean gap in the
 // solid bar. Claude Code draws `dimColor` in the theme's grey, so days cannot be
 // told apart by shade, and a line glyph shows as a line between two gaps.
 const MARK = ' '
+
+// A bar of a style whose glyphs are two cells wide. Its runs are one a cell and numbered
+// among the bar's halves, so that the pointer can tell each half apart; a cell that is
+// neither half of a glyph (a gap between days, a cell left over) has no number.
+const wideRuns = (width: number, percent: number, style: BarStyle, segments: number, warned: number, lead: number): Run[] => {
+  const marks = segments - 1
+  const split = marks > 0 && Math.floor((width - marks) / 2) >= segments
+  const units = Math.floor((split ? width - marks : width) / 2)
+  const starts = Array.from({ length: segments }, (_, k) => Math.round((k * units) / segments))
+  const lit = Math.min(units * 2, Math.round((percent / 100) * units * 2))
+  const warnFrom = warned > 0 ? (starts[segments - warned] ?? units) : units
+  const runs: Run[] = []
+  for (let unit = 0; unit < units; unit++) {
+    const isPiece = unit < lead
+    const halves = isPiece ? 2 : Math.max(0, Math.min(2, lit - unit * 2))
+    if (split && unit > 0 && starts.includes(unit)) runs.push({ text: MARK, part: halves > 0 ? 'filled' : 'empty' })
+    const more = { ...(halves === 0 && unit >= warnFrom ? { warn: true as const } : {}), ...(isPiece ? { piece: unit } : {}) }
+    runs.push({ text: style.steps[halves] ?? style.steps[0], part: halves > 0 ? 'filled' : 'empty', ...more, half: unit * 2 })
+    runs.push({ text: ' ', part: halves > 1 ? 'filled' : 'empty', ...more, half: unit * 2 + 1 })
+  }
+  const over = width - units * 2 - (split ? marks : 0)
+  if (over > 0) runs.push({ text: ' '.repeat(over), part: 'empty' })
+  return runs
+}
 
 // A bar's cells as runs of one kind. The cells fill one after another, each
 // through every step of the style, so a style of five steps shows a quarter
@@ -65,8 +99,10 @@ const MARK = ' '
 // on the cell nearest its true place, which spreads the longer ones out. A
 // mark the fill runs past takes its colour. The last `warned` segments' cells
 // are marked to warn; the marks between them are not. A style with caps rounds
-// the bar's ends, and the fill's end into what lies behind it.
-export const barRuns = (width: number, percent: number, style: BarStyle, segments = 1, warned = 0): Run[] => {
+// the bar's ends, and the fill's end into what lies behind it. The first `lead`
+// cells are little bars of their own, each a full cell; the fill goes on after them.
+export const barRuns = (width: number, percent: number, style: BarStyle, segments = 1, warned = 0, lead = 0): Run[] => {
+  if (style.wide) return wideRuns(width, percent, style, segments, warned, lead)
   const perCell = style.steps.length - 1
   const marks = segments - 1
   const split = marks > 0 && width - marks >= segments
@@ -75,17 +111,18 @@ export const barRuns = (width: number, percent: number, style: BarStyle, segment
   const starts = Array.from({ length: segments }, (_, k) => Math.round((k * cells) / segments))
   const lit = Math.min(cells * perCell, Math.round((percent / 100) * cells * perCell))
   const warnFrom = warned > 0 ? (starts[segments - warned] ?? cells) : cells
-  type Cell = { char: string; part: Run['part']; warn: boolean; behind?: Run['behind'] }
+  type Cell = { char: string; part: Run['part']; warn: boolean; behind?: Run['behind']; piece?: number }
   const drawn: Cell[] = []
   // Where each day cell sits among the drawn cells, marks included.
   const at: number[] = []
   for (let cell = 0; cell < cells; cell++) {
-    const step = Math.max(0, Math.min(perCell, lit - cell * perCell))
+    const isPiece = cell < lead
+    const step = isPiece ? perCell : Math.max(0, Math.min(perCell, lit - cell * perCell))
     const part = step > 0 ? 'filled' : 'empty'
     if (split && cell > 0 && starts.includes(cell)) drawn.push({ char: MARK, part, warn: false })
     at.push(drawn.length)
     // Only an empty cell warns: a used one keeps the fill's colour.
-    drawn.push({ char: style.steps[step] ?? style.steps[0], part, warn: part === 'empty' && cell >= warnFrom })
+    drawn.push({ char: style.steps[step] ?? style.steps[0], part, warn: part === 'empty' && cell >= warnFrom, ...(isPiece ? { piece: cell } : {}) })
   }
   if (style.caps) {
     const [left, right] = style.caps
@@ -98,16 +135,17 @@ export const barRuns = (width: number, percent: number, style: BarStyle, segment
     const end = Math.ceil(lit / perCell) - 1
     const fillEnd = drawn[at[end] ?? -1]
     const next = drawn[(at[end] ?? -1) + 1]
-    if (end > 0 && end < cells - 1 && fillEnd && next) {
+    if (end > 0 && end >= lead && end < cells - 1 && fillEnd && next) {
       fillEnd.char = right
       if (next.char !== MARK) fillEnd.behind = next.warn ? 'warn' : 'empty'
     }
   }
   const runs: Run[] = []
-  for (const { char, part, warn, behind } of drawn) {
+  for (const { char, part, warn, behind, piece } of drawn) {
     const last = runs[runs.length - 1]
-    if (last && !behind && !last.behind && last.part === part && (last.warn ?? false) === warn) last.text += char
-    else runs.push({ text: char, part, ...(warn ? { warn: true as const } : {}), ...(behind ? { behind } : {}) })
+    const joins = last && piece === undefined && last.piece === undefined && !behind && !last.behind
+    if (last && joins && last.part === part && (last.warn ?? false) === warn) last.text += char
+    else runs.push({ text: char, part, ...(warn ? { warn: true as const } : {}), ...(behind ? { behind } : {}), ...(piece === undefined ? {} : { piece }) })
   }
   return runs
 }
@@ -130,9 +168,34 @@ export type Row = {
   zone?: Zone
   // Where auto-compaction runs along the bar, 0 to 1.
   mark?: number
+  // What the session loaded before its conversation, kind by kind: each a little bar of
+  // its own at the bar's start.
+  pieces?: Piece[]
+  // One line of what the row's figures stand for: what the band shows for the row under
+  // the pointer.
+  detail?: string
+  // The same for Dumb Memory, once the session is in it: what stands either side of its
+  // name for the pointer on it.
+  zoneDetail?: { before: string; after: string }
 }
 
 export type Zone = { from: number; isIn: boolean }
+
+// One kind of memory: its share of the window, 0 to 1, and its colour.
+export type Piece = { share: number; paint: Paint }
+
+// A row of /context that is in use.
+export type Category = { name: string; tokens: number; color: string }
+
+// The conversation's row: it is the fill's own, and the only row told apart by its name.
+const CONVERSATION = 'Messages'
+
+const piecesOf = (context: SessionContextUsage | null | undefined, categories: readonly Category[] | null | undefined): Piece[] => {
+  if (!context || context.window <= 0 || !categories) return []
+  return categories
+    .filter(row => row.name !== CONVERSATION && row.tokens > 0)
+    .map(row => ({ share: row.tokens / context.window, paint: themePaint(row.color) }))
+}
 
 // Auto-compaction's place along the window; none where it is off, or would run at the
 // window's end or past it.
@@ -165,6 +228,26 @@ const isAhead = (window: Window | null | undefined, now: number): boolean => {
   return untilReset <= WARNED_DAYS && daysLeft < untilReset
 }
 
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+// A usage window in a line: how much of it is used and when it ends, by the person's own
+// clock. The week also says how long what is left lasts at the pace so far.
+const windowDetail = (name: string, window: Window | null | undefined, now: number, withDays: boolean): string | undefined => {
+  if (window?.percentUsed == null || !window.resetsAt) return undefined
+  const end = new Date(window.resetsAt)
+  const two = (n: number) => String(n).padStart(2, '0')
+  const day = withDays ? `${DAYS[end.getDay()]} ` : ''
+  const parts = [`${name} ${Math.min(99, Math.round(window.percentUsed))}%`, `resets ${day}${two(end.getHours())}:${two(end.getMinutes())}`]
+  if (withDays && window.percentUsed > 0) {
+    const untilReset = (end.getTime() - now) / DAY_MS
+    const lasts = ((100 - window.percentUsed) * (WEEK - untilReset)) / window.percentUsed
+    parts.push(lasts >= untilReset ? 'enough to the reset' : `${lasts.toFixed(1)} days left at this pace`)
+  }
+  return parts.join(' · ')
+}
+
+const detailOf = (detail: string | undefined): { detail?: string } => (detail ? { detail } : {})
+
 export type Reading = {
   usage: Usage | null | undefined
   context: SessionContextUsage | null | undefined
@@ -174,11 +257,13 @@ export type Reading = {
   loaded?: number | null
   // The tokens at which auto-compaction runs; null where it is off.
   compactAt?: number | null
+  // The rows of /context in use, once known.
+  categories?: readonly Category[] | null
 }
 
 // The rows the person asked for, top to bottom: the week, the five hours, and
 // the context window with the prompt cache's countdown.
-export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt }: Reading, settings: Settings): Row[] => {
+export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt, categories }: Reading, settings: Settings): Row[] => {
   const windowRow = (label: string, window: Window | null | undefined, own: Paint, withDays = false): Row => ({
     label,
     percent: window?.percentUsed,
@@ -190,6 +275,7 @@ export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt }: Read
     // The weekly bar is cut into its seven days.
     segments: withDays ? WEEK : 1,
     ...(withDays && isAhead(window, now) ? { warned: WARNED_DAYS } : {}),
+    ...detailOf(windowDetail(withDays ? 'week' : 'five hours', window, now, withDays)),
   })
   const cacheTimer = cacheCountdown(cacheAt, settings.cacheTtlMs, now)
   const isCold = cacheTimer === 'cold'
@@ -199,9 +285,28 @@ export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt }: Read
   if (settings.showContext) {
     const zone = settings.showDumbMemory ? zoneOf(context, loaded, settings.dumbZone) : null
     const mark = settings.showAutocompact ? markOf(context, compactAt) : null
+    const tokens = context?.tokens
+    const start = zone && context ? zone.from * context.window : 0
+    // Where Dumb Memory starts is said here only while its name is not on the band.
+    const detail =
+      context && tokens != null
+        ? [
+            `${tokensText(tokens)} of ${tokensText(context.window)}`,
+            ...(zone && !zone.isIn ? [`Dumb Memory from ${tokensText(start)}`] : []),
+            ...(mark !== null && compactAt != null ? [`auto-compact at ${tokensText(compactAt)}`] : []),
+          ].join(' · ')
+        : undefined
+    const zoneDetail =
+      zone?.isIn && tokens != null
+        ? { before: `${tokensText(tokens - start)} inside`, after: '/compact or /new' }
+        : undefined
+    const pieces = piecesOf(context, categories)
     rows.push({
       ...(zone ? { zone } : {}),
+      ...(pieces.length > 0 ? { pieces } : {}),
       ...(mark === null ? {} : { mark }),
+      ...(detail ? { detail } : {}),
+      ...(zoneDetail ? { zoneDetail } : {}),
       label: windowLabel(context?.window),
       percent: context?.percent,
       own: settings.contextColor,
@@ -281,6 +386,11 @@ export const fit = (view: View): Fit | null => {
 }
 
 const ZONE_WORDS = 'Dumb Memory'
+// The hover groups: a row and its line of detail light together, as the zone's name and
+// what stands beside it do.
+const ZONE_SCOPE = 'clawd-band-zone'
+const rowScope = (row: Row): string => `clawd-band-${row.label}`
+const DOT = '·'
 
 export function band(view: View, settings: Settings, { Box, Text, Image, Button }: Elements['terminal']) {
   const fitted = fit(view)
@@ -288,41 +398,89 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
   const { form, before, left, gap, label, reset, barWidth } = fitted
 
   const probe = view.pictures === null ? <Text> </Text> : <Image key="probe" source={PROBE} columns={1} rows={1} alt=" " />
-  // The zone's name stands in the top row over the cell where the zone starts, moved left
-  // where it would pass the band's edge and left out where the band has no room for it. It
-  // is a button: a picture takes no press, and the bar is one.
+  // Once the session is in the zone, its name stands in the top row over the cell where the
+  // zone starts, moved left where it would pass the band's edge and left out where the band
+  // has no room for it. It is a button: a picture takes no press, and the bar is one.
   const zone = view.rows.find(row => row.zone)?.zone
   const zoneAt = zone
     ? Math.min(before + left + gap + label + 1 + Math.floor(zone.from * barWidth), view.columns - EDGE - ZONE_WORDS.length)
     : 0
+  const zoneDetail = view.rows.find(row => row.zoneDetail)?.zoneDetail
   const top =
-    zone && zoneAt >= 1 ? (
+    zone?.isIn && zoneAt >= 1 ? (
       <Box key="top" flexDirection="row">
         {probe}
-        <Box key="dumb-memory-before" width={zoneAt - 1} />
-        <Button key="dumb-memory" label={ZONE_WORDS} plain dimColor onPress={view.onZone ?? (() => undefined)} />
+        {/* What the pointer on the name adds stands either side of it, hidden until then: the
+            name is left free for a press. The cells before it keep their width. */}
+        <Box key="dumb-memory-before" width={zoneAt - 1} flexDirection="row" justifyContent="flex-end">
+          {zoneDetail ? (
+            <Box key="zone-before" display="none" hover={{ scope: ZONE_SCOPE, display: 'flex' }}>
+              <Text dimColor>{`${zoneDetail.before} ${DOT} `.slice(-(zoneAt - 1))}</Text>
+            </Box>
+          ) : null}
+        </Box>
+        <Button key="dumb-memory" label={ZONE_WORDS} plain hover={{ scope: ZONE_SCOPE }} onPress={view.onZone ?? (() => undefined)}>
+          <Text color={settings.warning.text}>{ZONE_WORDS}</Text>
+        </Button>
+        {zoneDetail ? (
+          <Box key="zone-after" display="none" hover={{ scope: ZONE_SCOPE, display: 'flex' }}>
+            <Text dimColor>{` ${DOT} ${zoneDetail.after}`.slice(0, Math.max(0, view.columns - EDGE - zoneAt - ZONE_WORDS.length))}</Text>
+          </Box>
+        ) : null}
       </Box>
     ) : (
       probe
     )
 
   const isPicture = view.pictures === true && settings.barStyle.isPicture === true
+  const detailWidth = Math.max(0, view.columns - EDGE - 1)
+
+  // A little bar takes about a cell in the picture and a glyph in text. Where they would
+  // take more than a third of the bar, what was loaded is one, in the first's colour.
+  const shownPieces = (row: Row): Piece[] => {
+    const all = row.pieces ?? []
+    const first = all[0]
+    const room = (!isPicture && settings.barStyle.wide ? barWidth / 2 : barWidth) / 3
+    return first && all.length > room ? [{ share: all.reduce((total, piece) => total + piece.share, 0), paint: first.paint }] : all
+  }
+  // A bar with Dumb Memory shows its fill only once the session is in it: short of it
+  // the percentage alone says how full the window is.
+  const shownOf = (row: Row): number => (row.zone && !row.zone.isIn ? 0 : (row.percent ?? 0))
+  const runsOf = (row: Row): Run[] =>
+    isPicture ? [] : barRuns(barWidth, shownOf(row), settings.barStyle, row.segments, row.warned, shownPieces(row).length)
+  const halfScope = (row: Row, half: number): string => `${rowScope(row)}-${half}`
+  // What each half of a wide glyph stands for: its stretch of the bar, and whether that is
+  // used by the row's true figure, which a bar that hides its fill still has.
+  const halfLines = (row: Row): { half: number; text: string }[] => {
+    const halves = runsOf(row).filter(run => run.half !== undefined)
+    const used = Math.round(((row.percent ?? 0) / 100) * halves.length)
+    const at = (half: number) => Math.round((half / halves.length) * 100)
+    return halves.map((run, half) => {
+      const state = run.piece !== undefined ? 'loaded' : half < used ? 'used' : 'free'
+      return { half, text: `${row.label} ${DOT} ${at(half)}% to ${at(half + 1)}% ${DOT} ${state}` }
+    })
+  }
 
   const bar = (row: Row) => {
     const fill = row.percent ?? 0
-    const paint = row.color ?? row.own
+    const shown = shownOf(row)
+    // In Dumb Memory the fill is in the warning colour.
+    const paint = row.color ?? (row.zone?.isIn ? settings.warning : row.own)
     const percent = row.percent == null ? '--' : `${Math.min(99, Math.round(fill))}%`
+    const pieces = shownPieces(row)
     return (
-      <Box flexDirection="row">
+      <Box key={`row-${row.label}`} flexDirection="row" hover={{ scope: rowScope(row) }}>
         <Text dimColor>{row.label.padEnd(label)}</Text>
-        <Text> </Text>
+        {/* A dim dot either side of the bar, in the cell that parts it from its label and
+            from its figure: they lead the eye along the row. */}
+        <Text dimColor>{DOT}</Text>
         {isPicture ? (
           <Image
             key={`bar-${row.label}`}
             source={pill({
               columns: barWidth,
               ratio: settings.cellRatio,
-              percent: fill,
+              percent: shown,
               segments: row.segments ?? 1,
               warned: row.warned ?? 0,
               fill: paint.rgba,
@@ -331,22 +489,24 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
               zone: row.zone ? { ...row.zone, rest: ZONE_REST, inside: settings.warning.rgba } : undefined,
               // In the empty part's own colour, solid: the grey /context gives the buffer.
               mark: row.mark === undefined ? undefined : { at: row.mark, colour: solid(settings.empty.rgba) },
+              pieces: pieces.length > 0 ? pieces.map(piece => ({ share: piece.share, colour: piece.paint.rgba })) : undefined,
             })}
             columns={barWidth}
             rows={1}
             alt={`${row.label} ${percent}`}
           />
         ) : (
-          barRuns(barWidth, fill, settings.barStyle, row.segments, row.warned).map(run => (
+          runsOf(row).map(run => (
             <Text
-              color={(run.part === 'filled' ? paint : run.warn ? settings.warning : settings.empty).text}
+              {...(run.half === undefined ? {} : { hover: { scope: halfScope(row, run.half) } })}
+              color={((run.piece === undefined ? undefined : pieces[run.piece]?.paint) ?? (run.part === 'filled' ? paint : run.warn ? settings.warning : settings.empty)).text}
               backgroundColor={(run.behind === 'warn' ? settings.warning : run.behind === 'empty' ? settings.empty : undefined)?.text}
             >
               {run.text}
             </Text>
           ))
         )}
-        <Text> </Text>
+        <Text dimColor>{DOT}</Text>
         <Text dimColor={row.percent == null}>{percent.padStart(PERCENT)}</Text>
         {reset > 0 ? <Text> </Text> : null}
         {reset > 0 ? (
@@ -415,6 +575,25 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
         {view.rows.flatMap((row, at) => (at === 0 || isPicture ? [bar(row)] : [<Text> </Text>, bar(row)]))}
       </Box>
       </Box>
+      {/* Each row's line of detail, hidden until the pointer is on its row. Placed over the
+          top row, so that showing one moves nothing, and as wide as the band, so that it
+          covers what the row holds. */}
+      {view.rows.map(row =>
+        row.detail ? (
+          <Box key={`detail-${row.label}`} position="absolute" top={0} left={1} display="none" hover={{ scope: rowScope(row), display: 'flex' }}>
+            <Text>{row.detail.slice(0, detailWidth).padEnd(detailWidth)}</Text>
+          </Box>
+        ) : null,
+      )}
+      {/* The same for each half of a wide glyph, drawn after the rows' lines so that the
+          half's covers its row's while the pointer is on it. */}
+      {view.rows.flatMap(row =>
+        halfLines(row).map(({ half, text }) => (
+          <Box key={`detail-${row.label}-${half}`} position="absolute" top={0} left={1} display="none" hover={{ scope: halfScope(row, half), display: 'flex' }}>
+            <Text>{text.slice(0, detailWidth).padEnd(detailWidth)}</Text>
+          </Box>
+        )),
+      )}
     </Box>
   )
 }

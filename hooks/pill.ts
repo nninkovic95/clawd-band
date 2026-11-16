@@ -19,6 +19,9 @@ export type Pill = {
   zone?: { from: number; isIn: boolean; rest: Rgba; inside: Rgba }
   // Where auto-compaction runs along the bar, 0 to 1, and the colour of its mark.
   mark?: { at: number; colour: Rgba }
+  // Little pills of their own at the bar's start, each its share of the bar, 0 to 1; the
+  // fill starts after them.
+  pieces?: { share: number; colour: Rgba }[]
 }
 
 const ROW = 28 // the pixels a row of cells is drawn at
@@ -69,8 +72,9 @@ const painter = (spec: Pill, { width, height }: Size) => {
   const zoneFrom = zone ? width * zone.from : 0
   const zoneTo = width - air - line
   // With the session in it, the outline takes its inside colour. The fill within it shows
-  // by turns with that colour, in slanting stripes two lines wide, so both can be told. What
-  // is left of its inside is that colour as solid as the empty part is.
+  // by turns with the outline's resting colour, in slanting stripes two lines wide: a fill
+  // and an inside colour close in hue run together in stripes this fine. What is left of
+  // its inside is the inside colour as solid as the empty part is.
   const within = zone?.isIn ? zone.inside : null
   const faint: Rgba | null = within ? [within[0], within[1], within[2], spec.track[3]] : null
   const isStripe = (x: number, y: number) => Math.floor((x + y) / (2 * line)) % 2 === 1
@@ -79,6 +83,20 @@ const painter = (spec: Pill, { width, height }: Size) => {
   const mark = spec.mark
   const markFrom = mark ? width * mark.at - 2 * line : 0
   const markTo = markFrom + 4 * line
+  // The little pills stand where a fill would, one after another, a clear ring round each:
+  // two rings side by side are the gap between two. One too short to see is drawn as long
+  // as the mark is. The fill is then a pill of its own after the last.
+  const inset = air + 2 * line
+  const slabs: { from: number; to: number; colour: Rgba }[] = []
+  for (const piece of spec.pieces ?? []) {
+    const from = (slabs.at(-1)?.to ?? inset - 2 * line) + 2 * line
+    slabs.push({ from, to: from + Math.max(4 * line, width * piece.share), colour: piece.colour })
+  }
+  const last = slabs.at(-1)
+  const fillFrom = last ? last.to + 2 * line : 0
+  const fillTo = Math.max(fillFrom + 4 * line, end - inset)
+  const inFill = (x: number, y: number, grown: number): boolean =>
+    end > 0 && (last ? inSlab(x, y, fillFrom - grown, fillTo + grown, height, inset - grown) : inPill(x, y, 0, end, height, inset - grown))
   return (x: number, y: number): Rgba | null => {
     if (!inPill(x, y, 0, width, height, air)) return null
     const seam = Math.round(x / segment) * segment
@@ -87,8 +105,11 @@ const painter = (spec: Pill, { width, height }: Size) => {
     if (mark && inSlab(x, y, markFrom - line, markTo + line, height, air + line)) return null
     const isInside = zone !== undefined && inSlab(x, y, zoneFrom + line, zoneTo - line, height, air + 2 * line)
     if (zone && !isInside && inSlab(x, y, zoneFrom, zoneTo, height, air + line)) return within ?? zone.rest
-    if (end > 0 && inPill(x, y, 0, end, height, air + 2 * line)) return isInside && within && isStripe(x, y) ? within : spec.fill
-    if (end > 0 && inPill(x, y, 0, end, height, air + line)) return null
+    const slab = slabs.find(slab => inSlab(x, y, slab.from, slab.to, height, inset))
+    if (slab) return slab.colour
+    if (inFill(x, y, 0)) return zone && isInside && within && isStripe(x, y) ? zone.rest : spec.fill
+    if (slabs.some(slab => inSlab(x, y, slab.from - line, slab.to + line, height, inset - line))) return null
+    if (inFill(x, y, line)) return null
     if (isInside && faint) return faint
     return x >= warnFrom ? spec.warn : spec.track
   }

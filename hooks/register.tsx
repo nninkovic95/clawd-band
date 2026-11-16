@@ -3,7 +3,7 @@ import type { EngineInterface, Register, SessionContextUsage, Timer, TurnComplet
 
 import type { Model, Pose } from '../types'
 import { band, fit, PROBE, rowsOf } from './band'
-import { compactTokens, estimatedTokens, loadedTokens, syncContext, wantContext } from './context'
+import { compactTokens, estimatedTokens, loadedTokens, syncContext, usedRows, wantContext } from './context'
 import type { Clawd } from './band'
 import { play, RULES, start, view, want } from './pose'
 import type { Flow, Rules } from './pose'
@@ -489,7 +489,8 @@ export const register: Register = (on, options) => {
     const name = model.name ? shortModel(model.name) : '--'
     const loaded = config.contextDetail ? loadedTokens() : null
     const compactAt = config.contextDetail ? compactTokens() : null
-    const rows = rowsOf({ usage, context, cacheAt, now, loaded, compactAt }, config)
+    const categories = config.contextDetail ? usedRows() : null
+    const rows = rowsOf({ usage, context, cacheAt, now, loaded, compactAt, categories }, config)
     // Everything turned off: the row above the prompt is not the mod's.
     if (!clawd && !config.showModel && rows.length === 0) return next(e)
     const view = {

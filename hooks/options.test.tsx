@@ -49,13 +49,14 @@ const READING = {
 }
 
 test('a bar style fills its cells one after another, step by step', async () => {
-  expect(barRuns(4, 50, BAR_STYLES.circles)).toEqual([
-    { text: '●●', part: 'filled' },
-    { text: '○○', part: 'empty' },
+  expect(barRuns(4, 50, BAR_STYLES.dots)).toEqual([
+    { text: '⣿⣿', part: 'filled' },
+    { text: '⣀⣀', part: 'empty' },
   ])
-  expect(barRuns(4, 30, BAR_STYLES.circles)).toEqual([
-    { text: '●◔', part: 'filled' },
-    { text: '○○', part: 'empty' },
+  // 30% of four cells of three steps each is 4 steps: a full cell and a third of the next.
+  expect(barRuns(4, 30, BAR_STYLES.dots)).toEqual([
+    { text: '⣿⣤', part: 'filled' },
+    { text: '⣀⣀', part: 'empty' },
   ])
   expect(barRuns(4, 100, BAR_STYLES.squares)).toEqual([{ text: '■■■■', part: 'filled' }])
   expect(barRuns(2, 25, BAR_STYLES.line)).toEqual([
@@ -66,8 +67,12 @@ test('a bar style fills its cells one after another, step by step', async () => 
 })
 
 test('every style marks the days between them', async () => {
-  expect(barRuns(5, 0, BAR_STYLES.circles, 2)).toEqual([{ text: '○○ ○○', part: 'empty' }])
-  expect(barRuns(5, 100, BAR_STYLES.circles, 2)).toEqual([{ text: '●● ●●', part: 'filled' }])
+  expect(barRuns(5, 0, BAR_STYLES.squares, 2)).toEqual([{ text: '□□ □□', part: 'empty' }])
+  expect(barRuns(5, 100, BAR_STYLES.squares, 2)).toEqual([{ text: '■■ ■■', part: 'filled' }])
+  // Circles too: nine cells are a gap and four circles of two cells, two a day.
+  const [OPEN, WHOLE] = ['\u{F0766}', '\u{F0765}']
+  expect(barRuns(9, 0, BAR_STYLES.circles, 2).map(run => run.text).join('')).toBe(`${OPEN} ${OPEN}  ${OPEN} ${OPEN} `)
+  expect(barRuns(9, 100, BAR_STYLES.circles, 2).map(run => run.text).join('')).toBe(`${WHOLE} ${WHOLE}  ${WHOLE} ${WHOLE} `)
 })
 
 test('bar_style and sprite take one of their choices, or a random one', async () => {
@@ -90,7 +95,7 @@ test('the rows are the ones left on, top to bottom', async () => {
   expect(labels({ show_weekly: false })).toEqual(['5h', '200k'])
   expect(labels({ show_five_hour: false, show_context: false })).toEqual(['7d'])
   // A row's colour as a Text takes it; a picture's form of it has its own tests.
-  const [weekly, fiveHour, context] = rowsOf(READING, settings({})).map(row => ({ ...row, own: row.own.text }))
+  const [weekly, fiveHour, context] = rowsOf(READING, settings({})).map(({ detail, ...row }) => ({ ...row, own: row.own.text }))
   expect(weekly).toEqual({ label: '7d', percent: 31, own: 'autoAccept', timer: '02d-09h-00m', isLive: true, segments: 7 })
   expect(fiveHour?.timer).toBe('03h-00m-00s')
   expect(context).toEqual({
@@ -139,7 +144,8 @@ test('bar_style draws the bars in that style', { options: { bar_style: 'circles'
   mock.clock(on, { now: NOW })
   on('ui.render', core)
   const ui = await $.ui.mount(BAND)
-  expect(await ui.find({ type: 'Text', text: /^○+$/ })).toBeDefined()
+  // An empty circle: a Nerd Font's outline, as the round ends of `blocks` are a Nerd Font's.
+  expect(await ui.find({ type: 'Text', text: '\u{F0766}' })).toBeDefined()
   expect(JSON.stringify(await ui.find({ key: 'bars' }))).not.toContain('█')
   await ui.unmount()
 })

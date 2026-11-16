@@ -183,7 +183,7 @@ test("the blocks style rounds the bar's ends, each in the colour of its part", a
   expect(barRuns(10, 0, BAR_STYLES.blocks)).toEqual([{ text: '████████', part: 'empty' }])
   expect(barRuns(10, 100, BAR_STYLES.blocks)).toEqual([{ text: '████████', part: 'filled' }])
   // Another style keeps square ends.
-  expect(barRuns(4, 0, BAR_STYLES.circles)).toEqual([{ text: '○○○○', part: 'empty' }])
+  expect(barRuns(4, 0, BAR_STYLES.squares)).toEqual([{ text: '□□□□', part: 'empty' }])
 })
 
 test("the blocks style rounds the fill's end into what lies behind it", async () => {
@@ -474,7 +474,7 @@ test("the fill's rounded end is drawn on the empty part's colour", TEXT_BARS, as
   await ui.unmount()
 })
 
-test('each bar has a blank cell either side and a blank row parts each two, under an empty row on top', TEXT_BARS, async ($, on) => {
+test('each bar has a dim dot either side and a blank row parts each two, under an empty row on top', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const resetsAt = new Date(NOW + 3_600_000).toISOString()
   on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 40, resetsAt }]))
@@ -488,9 +488,11 @@ test('each bar has a blank cell either side and a blank row parts each two, unde
   // " 00h-59m-59s" 12, 1 at the edge: the bar is 33.
   expect(rows.length).toBe(5)
   expect([rows[1], rows[3]].map(row => row?.trim())).toEqual(['', ''])
-  // The label, a blank cell, the bar from its first cap to its last, a blank cell, the percentage.
-  const framed = /^(7d {3}|5h {3}|200k ) .{31} +(\d+%|--)/
+  // The label, a dot, the bar from its first cap to its last, a dot, the percentage. The
+  // dots are dim: they lead the eye from a label to its bar and on to its figure.
+  const framed = /^(7d {3}|5h {3}|200k )·.{31}· +(\d+%|--)/
   expect([rows[0], rows[2], rows[4]].map(row => framed.test(row ?? ''))).toEqual([true, true, true])
+  expect((await ui.find({ type: 'Text', text: '·' }))?.props.dimColor).toBe(true)
   // The band's first row is empty to the eye, so it stands clear of the line above it: it holds
   // only the one-cell picture the terminal is asked through, whose alt is a space.
   const top = (await ui.find({ key: 'band' })) as Drawn | undefined

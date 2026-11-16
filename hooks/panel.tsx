@@ -1,6 +1,6 @@
 import type { ConfigRow, ConfigValue, EngineInterface, On } from 'claude-code'
 
-import { zoneStart } from './band'
+import { tokensText, zoneStart } from './band'
 import { compactTokens, loadedTokens, usedRows } from './context'
 import type { Settings } from './settings'
 
@@ -73,19 +73,15 @@ export const settingsPanel = (on: On) => {
   })
 }
 
-// 320807 -> "320.8k", 667000 -> "667k", 1000000 -> "1M".
-const tokensText = (tokens: number): string => {
-  const trim = (value: number) => String(Math.round(value * 10) / 10)
-  if (tokens >= 1_000_000) return `${trim(tokens / 1_000_000)}M`
-  return tokens >= 1000 ? `${trim(tokens / 1000)}k` : String(tokens)
-}
-
 // The pane a press on the zone's name opens: the context by category as
 // /context lists it, then where the zone starts for this session and the way
 // out of it. Drawn from what the band already holds; it asks for no breakdown.
 export const zonePanel = (on: On, settings: Settings, nameOf: (model: string) => string) => {
   on('ui.render', { component: 'Pane', requestId: ZONE_PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    // A row is a square, a blank, the name, the tokens in 6 cells and the share in 6, a
+    // blank before each: the name takes what a narrow pane leaves, so no row wraps.
+    const nameCells = Math.max(8, Math.min(24, e.props.bodyColumns - 17))
     const context = (await $.session.usage().catch(() => null))?.context
     const model = await $.session.model().catch(() => null)
     const window = context?.window ?? 0
@@ -102,7 +98,7 @@ export const zonePanel = (on: On, settings: Settings, nameOf: (model: string) =>
         {usedRows().map(row => (
           <Box flexDirection="row">
             <Text color={row.color}>■</Text>
-            <Text>{` ${row.name.padEnd(24)} ${tokensText(row.tokens).padStart(6)} ${share(row.tokens).padStart(6)}`}</Text>
+            <Text>{` ${row.name.slice(0, nameCells).padEnd(nameCells)} ${tokensText(row.tokens).padStart(6)} ${share(row.tokens).padStart(6)}`}</Text>
           </Box>
         ))}
         <Text> </Text>
@@ -120,6 +116,10 @@ export const zonePanel = (on: On, settings: Settings, nameOf: (model: string) =>
           </Box>
         )}
         <Text>{compactAt === null ? 'Auto-compaction is off.' : `Auto-compaction runs at ${tokensText(compactAt)} (the grey pill).`}</Text>
+        <Text> </Text>
+        {/* What to do about it is /usage's to say: its recommendations are worked out from
+            the person's usage, which a mod is not handed. */}
+        <Button key="usage" label="See /usage's recommendations" onPress={() => void $.command.run({ command: 'usage' }).catch(() => undefined)} />
       </Box>
     )
   })

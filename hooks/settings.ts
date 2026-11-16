@@ -11,6 +11,9 @@ export type BarStyle = {
   caps?: readonly [string, string]
   // Drawn as a picture where the terminal draws pictures; the steps are its look in text.
   isPicture?: true
+  // Each glyph is drawn two cells wide, a blank after it: a bar is half as many of them
+  // as it has cells, and each half of one is a cell and a step.
+  wide?: true
 }
 
 // Solid on both sides, told apart by colour alone, so a theme sets both; the ends
@@ -21,7 +24,9 @@ export const BAR_STYLES = {
   // A picture of a pill: an edge, the fill inside it, hairlines between days.
   pill: { ...BLOCKS, isPicture: true },
   blocks: BLOCKS,
-  circles: { steps: ['○', '◔', '◑', '◕', '●'] },
+  // A Nerd Font's circles, which a terminal draws over the blank that follows: an
+  // outline, the left half filled, and whole.
+  circles: { steps: ['\u{F0766}', '\u{F1396}', '\u{F0765}'], wide: true },
   dots: { steps: ['⣀', '⣤', '⣶', '⣿'] },
   squares: { steps: ['□', '▣', '■'] },
   line: { steps: ['─', '╾', '━'] },
@@ -105,9 +110,21 @@ const DARK = {
   warning: [255, 193, 7],
   success: [78, 186, 101],
   blue: [95, 160, 230],
+  // The keys /context colours its rows in, beyond those above.
+  promptBorder: [136, 136, 136],
+  cyan_FOR_SUBAGENTS_ONLY: [8, 145, 178],
+  green_FOR_SUBAGENTS_ONLY: [22, 163, 74],
+  purple_FOR_SUBAGENTS_ONLY: [130, 125, 189],
 } as const satisfies Record<string, Readonly<Rgb>>
 
 const isKnown = (key: string): key is keyof typeof DARK => Object.hasOwn(DARK, key)
+
+// A theme key as the engine hands one over (a row of /context): a Text takes it as it is,
+// and a picture draws a key it does not know in the empty part's grey.
+export const themePaint = (key: string): Paint => {
+  const [red, green, blue] = DARK[isKnown(key) ? key : 'inactive']
+  return { text: key, rgba: [red, green, blue, 255] }
+}
 
 const SOLID = 255
 // A bar's empty part lets the terminal show through: two fifths solid.
