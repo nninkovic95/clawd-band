@@ -4,7 +4,7 @@ import type { Usage, Window } from '../types'
 import { themePaint } from './settings'
 import type { BarStyle, Paint, Settings } from './settings'
 import type { Picture, Rgba } from './picture'
-import { pill } from './pill'
+import { markCells, pill } from './pill'
 import { BOX_COLUMNS, BOX_ROWS, TEXT_COLUMNS } from './sprite'
 import type { TextFrame } from './sprite'
 
@@ -75,7 +75,9 @@ const wideRuns = (width: number, percent: number, style: BarStyle, segments: num
   const split = marks > 0 && Math.floor((width - marks) / 2) >= segments
   const units = Math.floor((split ? width - marks : width) / 2)
   const starts = Array.from({ length: segments }, (_, k) => Math.round((k * units) / segments))
-  const lit = Math.min(units * 2, Math.round((percent / 100) * units * 2))
+  const used = Math.min(units * 2, Math.round((percent / 100) * units * 2))
+  // A fill after little bars is two glyphs at least, as each little bar is one.
+  const lit = lead > 0 && percent > 0 ? Math.min(units * 2, Math.max(used, (lead + 2) * 2)) : used
   const warnFrom = warned > 0 ? (starts[segments - warned] ?? units) : units
   const runs: Run[] = []
   for (let unit = 0; unit < units; unit++) {
@@ -100,7 +102,8 @@ const wideRuns = (width: number, percent: number, style: BarStyle, segments: num
 // mark the fill runs past takes its colour. The last `warned` segments' cells
 // are marked to warn; the marks between them are not. A style with caps rounds
 // the bar's ends, and the fill's end into what lies behind it. The first `lead`
-// cells are little bars of their own, each a full cell; the fill goes on after them.
+// cells are little bars of their own, each a full cell; the fill goes on after them, two
+// cells of its own at least where there is any.
 export const barRuns = (width: number, percent: number, style: BarStyle, segments = 1, warned = 0, lead = 0): Run[] => {
   if (style.wide) return wideRuns(width, percent, style, segments, warned, lead)
   const perCell = style.steps.length - 1
@@ -109,7 +112,8 @@ export const barRuns = (width: number, percent: number, style: BarStyle, segment
   const cells = split ? width - marks : width
   // The cell each segment starts at.
   const starts = Array.from({ length: segments }, (_, k) => Math.round((k * cells) / segments))
-  const lit = Math.min(cells * perCell, Math.round((percent / 100) * cells * perCell))
+  const used = Math.min(cells * perCell, Math.round((percent / 100) * cells * perCell))
+  const lit = lead > 0 && percent > 0 ? Math.min(cells * perCell, Math.max(used, (lead + 2) * perCell)) : used
   const warnFrom = warned > 0 ? (starts[segments - warned] ?? cells) : cells
   type Cell = { char: string; part: Run['part']; warn: boolean; behind?: Run['behind']; piece?: number }
   const drawn: Cell[] = []
@@ -180,6 +184,8 @@ export type Row = {
   // Dumb Memory in a line while the session is short of it: shown for the pointer on the
   // zone itself.
   zoneLine?: string
+  // Auto-compaction in a line, where its pill is drawn: shown for the pointer on the pill.
+  markLine?: string
 }
 
 export type Zone = { from: number; isIn: boolean }
@@ -286,16 +292,22 @@ export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt, catego
   if (settings.showWeekly) rows.push(windowRow('7d', usage?.sevenDay, settings.weeklyColor, true))
   if (settings.showFiveHour) rows.push(windowRow('5h', usage?.fiveHour, settings.fiveHourColor))
   if (settings.showContext) {
-    const zone = settings.showDumbMemory ? zoneOf(context, loaded, settings.dumbZone) : null
+    // A share of 0 is no zone by its own rule: by the sum it would start where the loaded part ends.
+    const zone = settings.showDumbMemory && settings.dumbZone > 0 ? zoneOf(context, loaded, settings.dumbZone) : null
     const mark = settings.showAutocompact ? markOf(context, compactAt) : null
     const tokens = context?.tokens
     const start = zone && context ? zone.from * context.window : 0
+    const compactText = mark !== null && compactAt != null ? `auto-compact at ${tokensText(compactAt)}` : undefined
+    // A bar drawn as a picture has a pill on the mark, and the pill a line of its own; a bar
+    // in text has no pill, and its row's line says where auto-compaction runs.
+    const isPill = settings.barStyle.isPicture === true
     const detail =
       context && tokens != null
-        ? [
-            `${tokensText(tokens)} of ${tokensText(context.window)}`,
-            ...(mark !== null && compactAt != null ? [`auto-compact at ${tokensText(compactAt)}`] : []),
-          ].join(' · ')
+        ? [`${tokensText(tokens)} of ${tokensText(context.window)}`, ...(compactText && !isPill ? [compactText] : [])].join(' · ')
+        : undefined
+    const markLine =
+      compactText && isPill && tokens != null && compactAt != null
+        ? [compactText, ...(tokens < compactAt ? [`${tokensText(compactAt - tokens)} to go`] : [])].join(' · ')
         : undefined
     // Dumb Memory's own line while the session is short of it: its name is not on the band then.
     const zoneLine =
@@ -314,6 +326,7 @@ export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt, catego
       ...(detail ? { detail } : {}),
       ...(zoneDetail ? { zoneDetail } : {}),
       ...(zoneLine ? { zoneLine } : {}),
+      ...(markLine ? { markLine } : {}),
       label: windowLabel(context?.window),
       percent: context?.percent,
       own: settings.contextColor,
@@ -393,11 +406,17 @@ export const fit = (view: View): Fit | null => {
 }
 
 const ZONE_WORDS = 'Dumb Memory'
+// On a bar narrower than the words, they are shortened to its first six letters and an ellipsis.
+const ZONE_SHORT = 'Dumb M\u2026'
 // The hover groups: a row and its line of detail light together, as the zone's name and
 // what stands beside it do.
 const ZONE_SCOPE = 'clawd-band-zone'
+// The auto-compaction pill and its line light together, apart from its row and the zone.
+const MARK_SCOPE = 'clawd-band-mark'
 const rowScope = (row: Row): string => `clawd-band-${row.label}`
 const DOT = '·'
+// The fewest cells a context bar has room for little bars in.
+const PIECES_FROM = 5
 
 export function band(view: View, settings: Settings, { Box, Text, Image, Button }: Elements['terminal']) {
   const fitted = fit(view)
@@ -409,8 +428,9 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
   // zone starts, moved left where it would pass the band's edge and left out where the band
   // has no room for it. It is a button: a picture takes no press, and the bar is one.
   const zone = view.rows.find(row => row.zone)?.zone
+  const words = barWidth < ZONE_WORDS.length ? ZONE_SHORT : ZONE_WORDS
   const zoneAt = zone
-    ? Math.min(before + left + gap + label + 1 + Math.floor(zone.from * barWidth), view.columns - EDGE - ZONE_WORDS.length)
+    ? Math.min(before + left + gap + label + 1 + Math.floor(zone.from * barWidth), view.columns - EDGE - words.length)
     : 0
   const zoneDetail = view.rows.find(row => row.zoneDetail)?.zoneDetail
   const zoneLine = view.rows.find(row => row.zoneLine)?.zoneLine
@@ -428,11 +448,11 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
           ) : null}
         </Box>
         <Button key="dumb-memory" label={ZONE_WORDS} plain hover={{ scope: ZONE_SCOPE }} onPress={view.onZone ?? (() => undefined)}>
-          <Text color={settings.warning.text}>{ZONE_WORDS}</Text>
+          <Text color={settings.warning.text}>{words}</Text>
         </Button>
         {zoneDetail ? (
           <Box key="zone-after" display="none" hover={{ scope: ZONE_SCOPE, display: 'flex' }}>
-            <Text dimColor>{` ${DOT} ${zoneDetail.after}`.slice(0, Math.max(0, view.columns - EDGE - zoneAt - ZONE_WORDS.length))}</Text>
+            <Text dimColor>{` ${DOT} ${zoneDetail.after}`.slice(0, Math.max(0, view.columns - EDGE - zoneAt - words.length))}</Text>
           </Box>
         ) : null}
       </Box>
@@ -442,23 +462,30 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
 
   const isPicture = view.pictures === true && settings.barStyle.isPicture === true
   const detailWidth = Math.max(0, view.columns - EDGE - 1)
+  // Only a picture draws the auto-compaction pill.
+  const markLine = isPicture ? view.rows.find(row => row.markLine)?.markLine : undefined
+  // With no picture there is no pill, and the row's own line says where auto-compaction runs:
+  // the first part of the pill's line.
+  const lineOf = (row: Row): string | undefined =>
+    row.detail && row.markLine && !isPicture ? `${row.detail} ${DOT} ${row.markLine.split(` ${DOT} `)[0]}` : row.detail
 
   // A little bar takes about a cell in the picture and a glyph in text. Where they would
-  // take more than a third of the bar, what was loaded is one, in the first's colour.
+  // take more than a third of the bar, what was loaded is one, in the first's colour. Under
+  // 5 cells there is no room for one beside the fill: the bar is one plain fill.
   const shownPieces = (row: Row): Piece[] => {
+    if (barWidth < PIECES_FROM) return []
     const all = row.pieces ?? []
     const first = all[0]
     const room = (!isPicture && settings.barStyle.wide ? barWidth / 2 : barWidth) / 3
     return first && all.length > room ? [{ share: all.reduce((total, piece) => total + piece.share, 0), paint: first.paint }] : all
   }
-  // A bar with Dumb Memory shows its fill only once the session is in it: short of it
-  // the percentage alone says how full the window is.
-  const shownOf = (row: Row): number => (row.zone && !row.zone.isIn ? 0 : (row.percent ?? 0))
+  // Every bar shows its whole fill: with no little bars it is one plain fill from the bar's start.
+  const shownOf = (row: Row): number => row.percent ?? 0
   const runsOf = (row: Row): Run[] =>
     isPicture ? [] : barRuns(barWidth, shownOf(row), settings.barStyle, row.segments, row.warned, shownPieces(row).length)
   const halfScope = (row: Row, half: number): string => `${rowScope(row)}-${half}`
   // What each half of a wide glyph stands for: its stretch of the bar, and whether that is
-  // used by the row's true figure, which a bar that hides its fill still has.
+  // used by the row's true figure.
   const halfLines = (row: Row): { half: number; text: string }[] => {
     const halves = runsOf(row).filter(run => run.half !== undefined)
     const used = Math.round(((row.percent ?? 0) / 100) * halves.length)
@@ -535,6 +562,14 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
             hover={{ scope: ZONE_SCOPE }}
           />
         ) : null}
+        {/* The same over the cells the auto-compaction pill and its ring touch, in its own
+            group; after the zone's, so that where the pill lies in the zone its box is on top. */}
+        {isPicture && row.mark !== undefined && row.markLine
+          ? (() => {
+              const { first, count } = markCells(barWidth, settings.cellRatio, row.mark)
+              return <Box key="mark-over" position="absolute" top={0} left={label + 1 + first} width={count} height={1} hover={{ scope: MARK_SCOPE }} />
+            })()
+          : null}
       </Box>
     )
   }
@@ -599,16 +634,23 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
       {/* Each row's line of detail, hidden until the pointer is on its row. Placed over the
           top row, so that showing one moves nothing, and as wide as the band, so that it
           covers what the row holds. */}
-      {view.rows.map(row =>
-        row.detail ? (
+      {view.rows.map(row => {
+        const detail = lineOf(row)
+        return detail ? (
           <Box key={`detail-${row.label}`} position="absolute" top={0} left={1} display="none" hover={{ scope: rowScope(row), display: 'flex' }}>
-            <Text>{row.detail.slice(0, detailWidth).padEnd(detailWidth)}</Text>
+            <Text>{detail.slice(0, detailWidth).padEnd(detailWidth)}</Text>
           </Box>
-        ) : null,
-      )}
+        ) : null
+      })}
       {zoneLine ? (
         <Box key="detail-zone" position="absolute" top={0} left={1} display="none" hover={{ scope: ZONE_SCOPE, display: 'flex' }}>
           <Text>{zoneLine.slice(0, detailWidth).padEnd(detailWidth)}</Text>
+        </Box>
+      ) : null}
+      {/* Auto-compaction's, after the zone's, so that where the pill lies in the zone its line covers the zone's. */}
+      {markLine ? (
+        <Box key="detail-mark" position="absolute" top={0} left={1} display="none" hover={{ scope: MARK_SCOPE, display: 'flex' }}>
+          <Text>{markLine.slice(0, detailWidth).padEnd(detailWidth)}</Text>
         </Box>
       ) : null}
       {/* The same for each half of a wide glyph, drawn after the rows' lines so that the

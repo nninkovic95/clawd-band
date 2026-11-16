@@ -2,6 +2,7 @@ import type { Hook, SessionContextBreakdown, SessionContextUsage, SessionRateLim
 import { expect, mock, test } from 'claude-code/testing'
 
 import { barRuns, rowsOf } from './band'
+import { imageOf, pixelOf } from './kit'
 import { BAR_STYLES, settings } from './settings'
 
 const BAND = {
@@ -257,10 +258,70 @@ test('the motion options are on unless turned off', async () => {
   expect([off.animate, off.randomPoses, off.turnEndings]).toEqual([false, false, false])
 })
 
-test('the context bar shows its detail unless context_detail is turned off', async () => {
-  expect(settings({}).contextDetail).toBe(true)
-  expect(settings({ context_detail: false }).contextDetail).toBe(false)
+test('the little bars of what fills the context are off unless show_context_kinds is true', async () => {
+  expect(settings({}).showContextKinds).toBe(false)
+  expect(settings({ show_context_kinds: true }).showContextKinds).toBe(true)
+  expect(settings({ show_context_kinds: false }).showContextKinds).toBe(false)
+  // A value that is no boolean leaves them off.
+  for (const value of ['true', 1, 'yes']) expect(settings({ show_context_kinds: value }).showContextKinds).toBe(false)
 })
+
+test('Dumb Memory and the auto-compaction pill are off unless their option is true', async () => {
+  const shown = (options: Parameters<typeof settings>[0]) => {
+    const { showDumbMemory, showAutocompact } = settings(options)
+    return [showDumbMemory, showAutocompact]
+  }
+  expect(shown({})).toEqual([false, false])
+  expect(shown({ show_dumb_memory: true, show_autocompact: true })).toEqual([true, true])
+  expect(shown({ show_dumb_memory: true })).toEqual([true, false])
+  expect(shown({ show_autocompact: true })).toEqual([false, true])
+  // A value that is no boolean leaves them off.
+  for (const value of ['true', 1, 'yes']) {
+    expect(shown({ show_dumb_memory: value, show_autocompact: value })).toEqual([false, false])
+  }
+})
+
+test(
+  'a band with no options draws the context bar inside Dumb Memory with no outline, no words, no auto-compaction pill, its fill in its own colour',
+  { options: { cell_ratio: '2.34' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    // 450000 of a million, nothing loaded before the conversation: past where Dumb Memory would
+    // start at the usual 40, 400000; auto-compaction runs at 667000.
+    const breakdown = {
+      categories: [{ name: 'Messages', tokens: 450_000, color: 'purple_FOR_SUBAGENTS_ONLY', isDeferred: false, kind: 'used' }],
+      totalTokens: 450_000,
+      rawMaxTokens: 700_000,
+      autoCompactThreshold: 667_000,
+      isAutoCompactEnabled: true,
+    } as unknown as SessionContextBreakdown
+    const context = { window: 1_000_000, tokens: 450_000, percent: 45 }
+    on('session.id', () => ({ value: 'one' }))
+    on('session.model', () => ({ value: 'claude-fable-5-2' }))
+    on('session.usage', ($, e) => usageOf([], e.breakdown ? { ...context, breakdown } : context))
+    on('session.authorize', () => ({ deny: 'no account in a test' }))
+    on('store.get', () => ({ value: undefined }))
+    on('store.set', () => ({ value: undefined }))
+    on('ui.render', core)
+    on('ui.blit', () => ({ value: {} }))
+    // 71 columns give a context bar of 31 cells: at 2.34, a picture 371 pixels by 28.
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 71 } })
+    await clock.advance(1000)
+    expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
+    expect(await ui.find({ type: 'Text', text: 'Dumb Memory' })).toBe(undefined)
+    expect(await ui.find({ key: 'zone-over' })).toBe(undefined)
+    const bar = (await imageOf(ui, 'bar-1m'))!
+    const TRACK = [153, 153, 153, 102]
+    // Where the outline's upper edge and its end would run, the bar's empty part.
+    expect([pixelOf(bar, 300, 5), pixelOf(bar, 365, 14)]).toEqual([TRACK, TRACK])
+    // Two thirds along, 247.5 of the 371 pixels, and its ring at 242: the empty part, no pill.
+    expect([pixelOf(bar, 242, 14), pixelOf(bar, 247, 14)]).toEqual([TRACK, TRACK])
+    // The fill, to 45% of the bar less its inset, 161: one plain fill in Claude's orange.
+    const ORANGE = [215, 119, 87, 255]
+    expect([14, 100, 155].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE, ORANGE])
+    await ui.unmount()
+  },
+)
 
 test('animate off holds Clawd still', { options: { sprite: 'text', animate: false } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
@@ -290,4 +351,10 @@ test('turn_endings off sends the end of a turn straight to rest', { options: { t
   await $.turn.start({ text: 'hello', turnId: 't1' })
   await $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 't1', reason: 'answer' })
   expect(poses).toEqual(['waiting', 'idle'])
+})
+
+test('dumb_zone is where Dumb Memory starts, in percent of the room left: 40 unless it is a number from 0 to 100', async () => {
+  expect(settings({}).dumbZone).toBe(40)
+  expect([0, 50, 12.5, 100].map(share => settings({ dumb_zone: share }).dumbZone)).toEqual([0, 50, 12.5, 100])
+  expect([-1, 101, 'many', '', Number.NaN, true].map(share => settings({ dumb_zone: share }).dumbZone)).toEqual([40, 40, 40, 40, 40, 40])
 })

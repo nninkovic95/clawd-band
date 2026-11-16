@@ -59,10 +59,10 @@ export type Settings = {
   showWeekly: boolean
   showFiveHour: boolean
   showContext: boolean
-  // The context bar by category, with its marks; off, one fill in one colour.
-  contextDetail: boolean
   // Dumb Memory's start: the share, in percent, of the room left after what the session loaded.
   dumbZone: number
+  // The context bar's three extras, each off unless turned on.
+  showContextKinds: boolean
   showDumbMemory: boolean
   showAutocompact: boolean
   keepSpinner: boolean
@@ -97,6 +97,10 @@ const ratioOf = (value: unknown): number => {
   const ratio = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
   return Number.isFinite(ratio) ? Math.max(RATIO.least, Math.min(RATIO.most, ratio)) : RATIO.usual
 }
+
+// Dumb Memory's start: a share in percent, so a number from 0 to 100; anything else is the
+// rule of thumb, two fifths.
+const zoneShareOf = (value: unknown): number => (typeof value === 'number' && value >= 0 && value <= 100 ? value : 40)
 
 // What a picture is drawn in for a theme key or a colour name: a mod is not
 // told a theme's values, so these are the dark theme's.
@@ -172,10 +176,10 @@ export const settings = (options: PluginOptions, random: () => number = Math.ran
     showWeekly: options.show_weekly !== false,
     showFiveHour: options.show_five_hour !== false,
     showContext: options.show_context !== false,
-    contextDetail: options.context_detail !== false,
-    dumbZone: 40,
-    showDumbMemory: options.show_dumb_memory !== false,
-    showAutocompact: options.show_autocompact !== false,
+    dumbZone: zoneShareOf(options.dumb_zone),
+    showContextKinds: options.show_context_kinds === true,
+    showDumbMemory: options.show_dumb_memory === true,
+    showAutocompact: options.show_autocompact === true,
     keepSpinner: options.keep_spinner === true,
     // Not `permission`: some themes draw it the same blue as `suggestion`.
     weeklyColor: paint(options.bar_color_weekly, 'autoAccept'),

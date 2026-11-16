@@ -78,23 +78,29 @@
       "description": "The context window and the countdown until the prompt cache goes cold.",
       "default": true
     },
-    "context_detail": {
+    "show_context_kinds": {
       "type": "boolean",
-      "title": "Context bar by category",
-      "description": "The context bar as a pill for each /context category, with the auto-compaction mark and the Dumb Memory outline. Off, it is one fill in one colour.",
-      "default": true
+      "title": "Show what fills the context",
+      "description": "A little bar on the context bar for each kind of thing the session loaded (the system prompt, tools, memory files and the like), in /context's colours and order, with the conversation's fill after them.",
+      "default": false
     },
     "show_dumb_memory": {
       "type": "boolean",
       "title": "Show Dumb Memory",
-      "description": "An outline on the context bar from where answers are expected to get worse (what the session loaded plus two fifths of the room left, a rule of thumb) to the bar's end; it turns red once the session is inside.",
-      "default": true
+      "description": "An outline on the context bar from where answers are expected to get worse (what the session loaded plus a share of the room left, a rule of thumb; `dumb_zone` sets the share) to the bar's end; it turns red once the session is inside.",
+      "default": false
+    },
+    "dumb_zone": {
+      "type": "number",
+      "title": "Where Dumb Memory starts",
+      "description": "How far into the room left after what the session loaded Dumb Memory starts, in percent: 40 is two fifths of it. 0 turns Dumb Memory off. A value outside 0 to 100 counts as 40.",
+      "default": 40
     },
     "show_autocompact": {
       "type": "boolean",
       "title": "Show where auto-compaction runs",
       "description": "A short grey pill on the context bar at the point where Claude Code compacts the conversation by itself. There is none while auto-compaction is off.",
-      "default": true
+      "default": false
     },
     "bar_color_weekly": {
       "type": "string",

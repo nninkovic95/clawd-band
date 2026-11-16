@@ -31,8 +31,22 @@ const SAMPLES = 4 // across and down each pixel, so that a curve's edge is smoot
 type Size = { width: number; height: number }
 
 // A very wide bar is drawn at fewer pixels a row, so that it stays a picture an Image takes.
-const sizeOf = ({ columns, ratio }: Pill): Size =>
+const sizeOf = ({ columns, ratio }: Pick<Pill, 'columns' | 'ratio'>): Size =>
   boxPixels(columns, 1, ratio, Math.max(1, Math.min(ROW, Math.floor((WIDEST * ratio) / columns))))
+
+// How thick the bar's edge, rings and air are in a row of `height` pixels.
+const lineOf = (height: number): number => Math.max(1, Math.round(height / 12))
+
+// The bar's cells that auto-compaction's mark at `at`, 0 to 1, touches with its clear ring,
+// which runs 3 lines either side of its place: the first of them and how many.
+export const markCells = (columns: number, ratio: number, at: number): { first: number; count: number } => {
+  const { width, height } = sizeOf({ columns, ratio })
+  const reach = 3 * lineOf(height)
+  const cell = width / columns
+  const first = Math.max(0, Math.floor((width * at - reach) / cell))
+  const last = Math.min(columns - 1, Math.ceil((width * at + reach) / cell) - 1)
+  return { first, count: Math.max(1, last - first + 1) }
+}
 
 // Whether a point lies in the pill that spans `from` to `to` across and the
 // whole height, drawn in by `inset` all round: a line with round ends.
@@ -60,7 +74,7 @@ const inSlab = (x: number, y: number, from: number, to: number, height: number, 
 // hairline are one line thick each, and so is the air left round the bar,
 // which parts it from the bar in the next row.
 const painter = (spec: Pill, { width, height }: Size) => {
-  const line = Math.max(1, Math.round(height / 12))
+  const line = lineOf(height)
   const air = line
   const segment = width / spec.segments
   const warnFrom = (spec.segments - spec.warned) * segment
@@ -84,19 +98,25 @@ const painter = (spec: Pill, { width, height }: Size) => {
   const markFrom = mark ? width * mark.at - 2 * line : 0
   const markTo = markFrom + 4 * line
   // The little pills stand where a fill would, one after another, a clear ring round each:
-  // two rings side by side are the gap between two. One too short to see is drawn as long
-  // as the mark is. The fill is then a pill of its own after the last. The first stands
-  // a gap in from where a fill starts: its corners are tighter than the bar's round end,
-  // and any nearer its ring would cut through the bar's rim.
+  // two rings side by side are the gap between two. Each is as long as its share of the
+  // bar, or, where that is longer, 3 lines and up to 4 more by its share against the
+  // largest's, so that kinds a large window holds a pixel of each still differ: 6 to 14
+  // pixels at a line of 2. Each is rounded to whole pixels. The fill is then a pill of its
+  // own after the last, never shorter than 8 lines, longer than any little pill. The first
+  // stands a gap in from where a fill starts: its corners are tighter than the bar's round
+  // end, and any nearer its ring would cut through the bar's rim.
   const inset = air + 2 * line
+  const pieces = spec.pieces ?? []
+  const largest = Math.max(0, ...pieces.map(piece => piece.share))
   const slabs: { from: number; to: number; colour: Rgba }[] = []
-  for (const piece of spec.pieces ?? []) {
+  for (const piece of pieces) {
     const from = (slabs.at(-1)?.to ?? inset) + 2 * line
-    slabs.push({ from, to: from + Math.max(4 * line, width * piece.share), colour: piece.colour })
+    const scaled = 3 * line + 4 * line * (largest > 0 ? piece.share / largest : 1)
+    slabs.push({ from, to: from + Math.round(Math.max(scaled, width * piece.share)), colour: piece.colour })
   }
   const last = slabs.at(-1)
   const fillFrom = last ? last.to + 2 * line : 0
-  const fillTo = Math.max(fillFrom + 4 * line, end - inset)
+  const fillTo = Math.max(fillFrom + 8 * line, end - inset)
   const inFill = (x: number, y: number, grown: number): boolean =>
     end > 0 && (last ? inSlab(x, y, fillFrom - grown, fillTo + grown, height, inset - grown) : inPill(x, y, 0, end, height, inset - grown))
   return (x: number, y: number): Rgba | null => {

@@ -755,6 +755,49 @@ test('a 429 ends the tries', TEXT_BARS, async ($, on) => {
   await ui.unmount()
 })
 
+// No reply, no request, no write: only the clock moves, and the band with it.
+test('a countdown moves on each second with nothing else happening', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on, {
+    usage: {
+      fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T18:00:00Z' },
+      sevenDay: { percentUsed: 31, resetsAt: '2026-10-14T00:00:00Z' },
+    },
+  })
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => usageOf())
+  on('session.authorize', () => ({ deny: 'no account in a test' }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.render', core)
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1500)
+  expect(await ui.find({ type: 'Text', text: '02h-59m-59s' })).toBeDefined()
+  await clock.advance(1000)
+  expect(await ui.find({ type: 'Text', text: '02h-59m-58s' })).toBeDefined()
+  await ui.unmount()
+})
+
+// The session's figure comes with no word of its change: the next second shows it.
+test('a context that fills with no reply shows on the next second', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on)
+  let percent = 10
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => usageOf([], { window: 200_000, percent }))
+  on('session.authorize', () => ({ deny: 'no account in a test' }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.render', core)
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1500)
+  expect(await ui.find({ type: 'Text', text: /^ *10%$/ })).toBeDefined()
+  percent = 40
+  await clock.advance(1000)
+  expect(await ui.find({ type: 'Text', text: /^ *40%$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test("another session's newer reading shows without a reply or a request", async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const reading = (percentUsed: number, readAt: number) => ({
