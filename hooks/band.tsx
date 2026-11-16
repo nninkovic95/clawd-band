@@ -142,10 +142,12 @@ const markOf = (context: SessionContextUsage | null | undefined, compactAt: numb
 // The stretch of the window where answers are expected to get worse: from
 // what the session loaded before its conversation plus a share of the room
 // left after it, to the window's end. The session is in it by its own tokens.
+// Where it starts, in tokens. In whole tokens: the share is a percentage.
+export const zoneStart = (window: number, loaded: number, share: number): number => (loaded * 100 + share * (window - loaded)) / 100
+
 const zoneOf = (context: SessionContextUsage | null | undefined, loaded: number | null | undefined, share: number): Zone | null => {
   if (!context || context.window <= 0 || loaded == null) return null
-  // In whole tokens: the share is a percentage.
-  const start = (loaded * 100 + share * (context.window - loaded)) / 100
+  const start = zoneStart(context.window, loaded, share)
   const tokens = context.tokens ?? ((context.percent ?? 0) * context.window) / 100
   return { from: start / context.window, isIn: tokens > start }
 }
@@ -230,6 +232,8 @@ export type View = {
   // Null where the person turned the model line off.
   model: { name: string; effort: string | null } | null
   rows: readonly Row[]
+  // What a press on the zone's name does.
+  onZone?: () => void
 }
 
 // How the band lays itself out at its width: which form of Clawd, how wide
@@ -276,10 +280,31 @@ export const fit = (view: View): Fit | null => {
   return laid.find(({ room }) => room >= MIN_BAR)?.at ?? null
 }
 
-export function band(view: View, settings: Settings, { Box, Text, Image }: Elements['terminal']) {
+const ZONE_WORDS = 'Dumb Memory'
+
+export function band(view: View, settings: Settings, { Box, Text, Image, Button }: Elements['terminal']) {
   const fitted = fit(view)
   if (!fitted) return <Box />
   const { form, before, left, gap, label, reset, barWidth } = fitted
+
+  const probe = view.pictures === null ? <Text> </Text> : <Image key="probe" source={PROBE} columns={1} rows={1} alt=" " />
+  // The zone's name stands in the top row over the cell where the zone starts, moved left
+  // where it would pass the band's edge and left out where the band has no room for it. It
+  // is a button: a picture takes no press, and the bar is one.
+  const zone = view.rows.find(row => row.zone)?.zone
+  const zoneAt = zone
+    ? Math.min(before + left + gap + label + 1 + Math.floor(zone.from * barWidth), view.columns - EDGE - ZONE_WORDS.length)
+    : 0
+  const top =
+    zone && zoneAt >= 1 ? (
+      <Box key="top" flexDirection="row">
+        {probe}
+        <Box key="dumb-memory-before" width={zoneAt - 1} />
+        <Button key="dumb-memory" label={ZONE_WORDS} plain dimColor onPress={view.onZone ?? (() => undefined)} />
+      </Box>
+    ) : (
+      probe
+    )
 
   const isPicture = view.pictures === true && settings.barStyle.isPicture === true
 
@@ -358,7 +383,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
   return (
     // An empty row on top keeps the band clear of the line above it.
     <Box key="band" flexDirection="column">
-      {view.pictures === null ? <Text> </Text> : <Image key="probe" source={PROBE} columns={1} rows={1} alt=" " />}
+      {top}
       {/* Three bars drawn as pictures are as tall as Clawd and stand level with him, the model
           line under him. Bars in text, a blank row between each two, are taller and hang from
           the bottom: the last one sits beside the model line. */}

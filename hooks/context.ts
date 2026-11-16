@@ -32,6 +32,10 @@ export const loadedTokens = (): number | null => {
   return rows.filter(row => row.kind === 'used' && row.name !== 'Messages').reduce((total, row) => total + row.tokens, 0)
 }
 
+// The rows that take up the window, as /context lists them, in its order.
+export const usedRows = (): { name: string; tokens: number; color: string }[] =>
+  (kept.breakdown?.categories ?? []).filter(row => row.kind === 'used')
+
 // The tokens at which the conversation is compacted by itself; null where that
 // is off, or the session has not answered.
 export const compactTokens = (): number | null =>

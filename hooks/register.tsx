@@ -7,7 +7,7 @@ import { compactTokens, estimatedTokens, loadedTokens, syncContext, wantContext 
 import type { Clawd } from './band'
 import { play, RULES, start, view, want } from './pose'
 import type { Flow, Rules } from './pose'
-import { offerCommand, settingsPanel } from './panel'
+import { offerCommand, openZonePane, settingsPanel, zonePanel } from './panel'
 import { boxPixels } from './picture'
 import type { Picture } from './picture'
 import { settings } from './settings'
@@ -346,6 +346,7 @@ export const register: Register = (on, options) => {
   drawText = textIn(config.spriteColor)
   rules = rulesOf()
   settingsPanel(on)
+  zonePanel(on, config, shortModel)
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -497,6 +498,7 @@ export const register: Register = (on, options) => {
       clawd,
       model: config.showModel ? { name, effort: model.effort } : null,
       rows,
+      onZone: () => void openZonePane($).catch(() => undefined),
     }
     live.form = fit(view)?.form ?? null
     live.drawn = live.form === 'text' ? text : null

@@ -175,6 +175,71 @@ test(
   },
 )
 
+test('the words Dumb Memory stand in the top row over where the zone starts, a button, dim until the session is in it', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on)
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  const words = await ui.find({ key: 'dumb-memory' })
+  expect([words?.type, words?.props.label, words?.props.plain, words?.props.dimColor]).toEqual(['Button', 'Dumb Memory', true, true])
+  // The bars start 22 cells in: 1, Clawd's 16, 1, "1m " and a blank. The zone starts 0.41266
+  // along the 31 cells of the bar, in its cell 12, so 34 cells in: the probe's cell and 33 more.
+  expect((await ui.find({ key: 'dumb-memory-before' }))?.props.width).toBe(33)
+  await ui.unmount()
+})
+
+test('a press on the words opens the Dumb Memory pane and hands it the keyboard', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on)
+  const opened: unknown[] = []
+  on('ui.open', ($, e) => {
+    opened.push([e.id, e.title, e.focus, e.closeOnEscape])
+    return { value: { isPlaced: true } }
+  })
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  await ui.press({ key: 'dumb-memory' })
+  expect(opened).toEqual([['clawd-context', 'Dumb Memory', true, true]])
+  await ui.unmount()
+})
+
+const ZONE_PANE = {
+  plugin: 'clawd-band',
+  surface: 'terminal',
+  component: 'Pane',
+  requestId: 'clawd-context',
+  props: {
+    title: 'Dumb Memory',
+    isFocused: true,
+    bodyColumns: 60,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 30 },
+    view: {},
+  },
+} as const
+
+test('the Dumb Memory pane lists the context by category and says where the zone starts for this session', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on)
+  const band = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  const pane = await $.ui.mount(ZONE_PANE)
+  const has = async (text: string) => (await pane.find({ type: 'Text', text })) !== undefined
+  expect(await has('Context · Fable 5.2')).toBe(true)
+  expect(await has(' 320.8k of 1M tokens (32%)')).toBe(true)
+  // Each row in use, its tokens and its share of the window; the deferred rows stay out.
+  expect(await has(' System prompt              3.5k   0.4%')).toBe(true)
+  expect(await has(' Messages                 299.7k  30.0%')).toBe(true)
+  expect(await pane.find({ type: 'Text', text: /deferred/ })).toBe(undefined)
+  // 21100 loaded and 40% of the 978900 left make 412660; the session is 91853 short of it.
+  expect(await has('Dumb Memory starts at 412.7k (loaded 21.1k + 40% of the room left):')).toBe(true)
+  expect(await has('a rule of thumb for where answers get worse.')).toBe(true)
+  expect(await has('This session is 91.9k short of it. Past it: /compact or /new.')).toBe(true)
+  expect(await has('Auto-compaction runs at 667k (the grey pill).')).toBe(true)
+  await pane.unmount()
+  await band.unmount()
+})
+
 test('a breakdown the session refuses is asked for again the next second', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   let asked = 0

@@ -1,5 +1,9 @@
 import type { ConfigRow, ConfigValue, EngineInterface, On } from 'claude-code'
 
+import { zoneStart } from './band'
+import { compactTokens, loadedTokens, usedRows } from './context'
+import type { Settings } from './settings'
+
 const MOD = 'clawd-band'
 const COMMAND = 'clawd'
 const PANE = 'clawd-settings'
@@ -10,6 +14,14 @@ const PANE = 'clawd-settings'
 // nothing else.
 export function offerCommand($: EngineInterface) {
   return $.command.register({ name: COMMAND, description: "Clawd's settings: the band's options in a panel" })
+}
+
+const ZONE_PANE = 'clawd-context'
+
+// Opens the pane that says what Dumb Memory is: what a press on its name in
+// the band does.
+export function openZonePane($: EngineInterface) {
+  return $.ui.open({ id: ZONE_PANE, title: 'Dumb Memory', focus: true, closeOnEscape: true })
 }
 
 // Sets a row as the person would in the settings menu, and says why where
@@ -58,5 +70,57 @@ export const settingsPanel = (on: On) => {
       return <Input key={row.key} label={row.label} value={String(row.value)} onSubmit={value => change($, row, value)} />
     }
     return <Box flexDirection="column">{rows.map(control)}</Box>
+  })
+}
+
+// 320807 -> "320.8k", 667000 -> "667k", 1000000 -> "1M".
+const tokensText = (tokens: number): string => {
+  const trim = (value: number) => String(Math.round(value * 10) / 10)
+  if (tokens >= 1_000_000) return `${trim(tokens / 1_000_000)}M`
+  return tokens >= 1000 ? `${trim(tokens / 1000)}k` : String(tokens)
+}
+
+// The pane a press on the zone's name opens: the context by category as
+// /context lists it, then where the zone starts for this session and the way
+// out of it. Drawn from what the band already holds; it asks for no breakdown.
+export const zonePanel = (on: On, settings: Settings, nameOf: (model: string) => string) => {
+  on('ui.render', { component: 'Pane', requestId: ZONE_PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const context = (await $.session.usage().catch(() => null))?.context
+    const model = await $.session.model().catch(() => null)
+    const window = context?.window ?? 0
+    const tokens = context?.tokens ?? 0
+    const loaded = loadedTokens()
+    const compactAt = compactTokens()
+    const start = loaded === null || window <= 0 ? null : zoneStart(window, loaded, settings.dumbZone)
+    const share = (part: number) => (window > 0 ? `${((part / window) * 100).toFixed(1)}%` : '')
+    return (
+      <Box flexDirection="column">
+        <Text bold>{`Context${model ? ` · ${nameOf(model)}` : ''}`}</Text>
+        <Text>{` ${tokensText(tokens)} of ${tokensText(window)} tokens (${context?.percent ?? 0}%)`}</Text>
+        <Text> </Text>
+        {usedRows().map(row => (
+          <Box flexDirection="row">
+            <Text color={row.color}>■</Text>
+            <Text>{` ${row.name.padEnd(24)} ${tokensText(row.tokens).padStart(6)} ${share(row.tokens).padStart(6)}`}</Text>
+          </Box>
+        ))}
+        <Text> </Text>
+        {start === null || loaded === null ? (
+          <Text dimColor>The session has not said yet what it holds.</Text>
+        ) : (
+          <Box flexDirection="column">
+            <Text>{`Dumb Memory starts at ${tokensText(start)} (loaded ${tokensText(loaded)} + ${settings.dumbZone}% of the room left):`}</Text>
+            <Text>a rule of thumb for where answers get worse.</Text>
+            <Text>
+              {tokens > start
+                ? `This session is ${tokensText(tokens - start)} inside it: /compact or /new.`
+                : `This session is ${tokensText(start - tokens)} short of it. Past it: /compact or /new.`}
+            </Text>
+          </Box>
+        )}
+        <Text>{compactAt === null ? 'Auto-compaction is off.' : `Auto-compaction runs at ${tokensText(compactAt)} (the grey pill).`}</Text>
+      </Box>
+    )
   })
 }
