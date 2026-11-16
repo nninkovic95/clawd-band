@@ -359,6 +359,8 @@ export type View = {
   rows: readonly Row[]
   // What a press on the zone's name does.
   onZone?: () => void
+  // What a press on the button at the top left does; absent, there is no button.
+  onContext?: () => void
 }
 
 // How the band lays itself out at its width: which form of Clawd, how wide
@@ -415,6 +417,10 @@ const ZONE_SCOPE = 'clawd-band-zone'
 const MARK_SCOPE = 'clawd-band-mark'
 const rowScope = (row: Row): string => `clawd-band-${row.label}`
 const DOT = '·'
+// The button at the top left of the bars that opens the pane on the context.
+const CONTEXT_WORDS = '\u2261 context'
+// The button where the words would leave no blank before Dumb Memory's name: the glyph alone.
+const CONTEXT_GLYPH = '\u2261'
 // The fewest cells a context bar has room for little bars in.
 const PIECES_FROM = 5
 
@@ -434,16 +440,36 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
     : 0
   const zoneDetail = view.rows.find(row => row.zoneDetail)?.zoneDetail
   const zoneLine = view.rows.find(row => row.zoneLine)?.zoneLine
+  const isZoneShown = zone?.isIn === true && zoneAt >= 1
+  // The context button starts where the rows' labels do, after the probe's cell. Dumb Memory's
+  // name never moves for it: before the name it keeps a blank, or is its glyph alone, or is left out.
+  const labelsAt = Math.max(1, before + left + gap)
+  const contextWords = !view.onContext
+    ? null
+    : !isZoneShown || zoneAt - labelsAt > CONTEXT_WORDS.length
+      ? CONTEXT_WORDS
+      : zoneAt - labelsAt > CONTEXT_GLYPH.length
+        ? CONTEXT_GLYPH
+        : null
+  const contextBefore = contextWords ? <Box key="context-before" width={labelsAt - 1} /> : null
+  const contextButton = contextWords ? (
+    <Button key="context" label={contextWords} plain dimColor onPress={view.onContext ?? (() => undefined)} />
+  ) : null
+  // Where the cells before the name start: after the button, or after the probe.
+  const detailAt = contextWords ? labelsAt + contextWords.length : 1
   const top =
-    zone?.isIn && zoneAt >= 1 ? (
+    isZoneShown ? (
       <Box key="top" flexDirection="row">
         {probe}
+        {contextBefore}
+        {contextButton}
         {/* What the pointer on the name adds stands either side of it, hidden until then: the
-            name is left free for a press. The cells before it keep their width. */}
-        <Box key="dumb-memory-before" width={zoneAt - 1} flexDirection="row" justifyContent="flex-end">
-          {zoneDetail ? (
+            name is left free for a press. The cells before it keep their width; what stands
+            there shows whole or not at all, never cut. */}
+        <Box key="dumb-memory-before" width={zoneAt - detailAt} flexDirection="row" justifyContent="flex-end">
+          {zoneDetail && `${zoneDetail.before} ${DOT} `.length <= zoneAt - detailAt ? (
             <Box key="zone-before" display="none" hover={{ scope: ZONE_SCOPE, display: 'flex' }}>
-              <Text dimColor>{`${zoneDetail.before} ${DOT} `.slice(-(zoneAt - 1))}</Text>
+              <Text dimColor>{`${zoneDetail.before} ${DOT} `}</Text>
             </Box>
           ) : null}
         </Box>
@@ -455,6 +481,12 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
             <Text dimColor>{` ${DOT} ${zoneDetail.after}`.slice(0, Math.max(0, view.columns - EDGE - zoneAt - words.length))}</Text>
           </Box>
         ) : null}
+      </Box>
+    ) : contextWords ? (
+      <Box key="top" flexDirection="row">
+        {probe}
+        {contextBefore}
+        {contextButton}
       </Box>
     ) : (
       probe

@@ -700,8 +700,9 @@ test('the words Dumb Memory stand in the top row over where the zone starts once
   expect([words?.type, words?.props.label, words?.props.plain]).toEqual(['Button', 'Dumb Memory', true])
   expect((await ui.find({ type: 'Text', text: 'Dumb Memory' }))?.props.color).toBe('error')
   // The bars start 22 cells in: 1, Clawd's 16, 1, "1m " and a blank. The zone starts 0.41266
-  // along the 31 cells of the bar, in its cell 12, so 34 cells in: the probe's cell and 33 more.
-  expect((await ui.find({ key: 'dumb-memory-before' }))?.props.width).toBe(33)
+  // along the 31 cells of the bar, in its cell 12, so 34 cells in: the probe's cell, 17, the
+  // context button's 9 and the 7 cells before the words.
+  expect((await ui.find({ key: 'dumb-memory-before' }))?.props.width).toBe(7)
   await ui.unmount()
 })
 
@@ -712,6 +713,41 @@ test('short of Dumb Memory the top row holds no words, only the outline tells of
   await clock.advance(1000)
   expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
   expect(await ui.find({ key: 'bar-1m' })).toBeDefined()
+  await ui.unmount()
+})
+
+// Where the element keyed `key` starts in the top row: the cells of what stands before it.
+const columnOf = async (ui: { drawn: () => Promise<unknown> }, key: string): Promise<number> => {
+  const kids = ((keyed(await ui.drawn(), 'top') as Laid | undefined)?.children ?? []) as (Laid | string)[]
+  const at = kids.findIndex(kid => typeof kid !== 'string' && (kid.key ?? kid.props?.key) === key)
+  return at < 0 ? -1 : kids.slice(0, at).reduce((sum, kid) => sum + cellsAcross(kid), 0)
+}
+
+for (const options of [{}, { bar_style: 'squares' }] as Record<string, string>[]) {
+  test(
+    `a dim button "≡ context" stands in the top row where the rows' labels start, with the three switches off${'bar_style' in options ? ', bars in text too' : ''}`,
+    { options },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: NOW })
+      sessionOf(on)
+      const ui = await $.ui.mount(PILLS)
+      await clock.advance(1000)
+      const button = await ui.find({ key: 'context' })
+      expect([button?.type, button?.props.label, button?.props.plain, button?.props.dimColor]).toEqual(['Button', '≡ context', true, true])
+      // The labels start 18 cells in: a cell, Clawd's 16 and a cell; "7d" is the first of them.
+      expect(await columnOf(ui, 'context')).toBe(18)
+      await ui.unmount()
+    },
+  )
+}
+
+test('with show_context off there is no context button', { options: { show_context: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on)
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
+  expect(await ui.find({ key: 'context' })).toBe(undefined)
   await ui.unmount()
 })
 
@@ -880,19 +916,28 @@ test("Dumb Memory's own detail stands hidden either side of its name, which stay
   const ui = await $.ui.mount(PILLS)
   await clock.advance(1000)
   const shown = { scope: 'clawd-band-zone', display: 'flex' }
-  const before = (await ui.find({ key: 'zone-before' })) as Tree | undefined
   const after = (await ui.find({ key: 'zone-after' })) as Tree | undefined
-  expect([before?.props.display, await hoverAt(ui, 'zone-before')]).toEqual(['none', shown])
   expect([after?.props.display, await hoverAt(ui, 'zone-after')]).toEqual(['none', shown])
-  expect([before && textIn(before), after && textIn(after)]).toEqual(['37.3k inside · ', ' · /compact or /new'])
+  // What stands before the name, "37.3k inside · ", is 15 cells and has the 7 between the
+  // context button and the name: it shows whole or not at all, never cut.
+  expect(await ui.find({ key: 'zone-before' })).toBe(undefined)
+  expect(after && textIn(after)).toBe(' · /compact or /new')
   // The name is in their group, and the cells before it are as wide as they were: nothing moves.
   expect(await hoverAt(ui, 'dumb-memory')).toEqual({ scope: 'clawd-band-zone' })
   // The zone in the bar is in the same group: the pointer on it brings up the same words.
   expect(await hoverAt(ui, 'zone-over')).toEqual({ scope: 'clawd-band-zone' })
   expect(await ui.find({ key: 'detail-zone' })).toBe(undefined)
   const spacer = await ui.find({ key: 'dumb-memory-before' })
-  expect([spacer?.props.width, spacer?.props.justifyContent]).toEqual([33, 'flex-end'])
+  expect([spacer?.props.width, spacer?.props.justifyContent]).toEqual([7, 'flex-end'])
   await ui.unmount()
+  // On a band of 120 columns the bar is 80 cells and the zone starts floor(0.41266 * 80) = 33
+  // cells past its first, cell 22: the name at 55, 28 cells after the button's end at 27.
+  const wide = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 } })
+  await clock.advance(1000)
+  const before = (await wide.find({ key: 'zone-before' })) as Tree | undefined
+  expect([before?.props.display, await hoverAt(wide, 'zone-before')]).toEqual(['none', shown])
+  expect(before && textIn(before)).toBe('37.3k inside · ')
+  await wide.unmount()
 })
 
 test('a press on the words opens the Dumb Memory pane and hands it the keyboard', { options: SHOWN }, async ($, on) => {
@@ -907,6 +952,69 @@ test('a press on the words opens the Dumb Memory pane and hands it the keyboard'
   await clock.advance(1000)
   await ui.press({ key: 'dumb-memory' })
   expect(opened).toEqual([['clawd-context', 'Dumb Memory', true, true]])
+  await ui.unmount()
+})
+
+test('inside Dumb Memory the top row holds the context button, then the cells of the hidden detail, then the words, each in its own cells', { options: SHOWN }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on, INSIDE)
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  // The probe's cell, 17 cells, "≡ context" in cells 18 to 26; the words where the zone starts,
+  // 34 cells in, as ever; the hidden detail has the 7 cells between, 27 to 33, too few for it.
+  expect((await ui.find({ key: 'context' }))?.props.label).toBe('≡ context')
+  expect(await columnOf(ui, 'context')).toBe(18)
+  expect(await columnOf(ui, 'dumb-memory-before')).toBe(27)
+  expect((await ui.find({ key: 'dumb-memory-before' }))?.props.width).toBe(7)
+  expect(await columnOf(ui, 'dumb-memory')).toBe(34)
+  expect(await ui.find({ key: 'zone-before' })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('inside Dumb Memory, as the band narrows, the context button is "≡ context" while a blank is left before the words, then "≡" alone, and the words never move for it', { options: SHOWN }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on, INSIDE)
+  // From 32 columns Clawd is a picture and the labels start 18 cells in; from 44 the bar is the
+  // band less 40 cells, and the zone starts floor(0.41266 of it) cells past its first, cell 22.
+  // "≡ context" and a blank take cells 18 to 27, so the words must stand at 28 or later: a bar of
+  // 15, floor(6.19) = 6, at 55 columns; at 54 the bar is 14, floor(5.78) = 5, the words at 27.
+  // Narrower, the words stand at 22 to 27 with the labels at 18; at 30 and 31 Clawd is text, the
+  // labels at 16 and the words at 21 or 22; from 25 to 29 Clawd is hidden, the labels at 11 and
+  // the words at 16 to 18. "≡" and a blank need the words 2 cells past the labels' start, and
+  // the words always stand past a label and its blank, 4 cells at least: so from 25, the
+  // narrowest band, to 54 the button is "≡", from 55 "≡ context", and no width leaves it out.
+  const want: Record<number, string> = {}
+  const read: Record<number, string> = {}
+  const wordsAt: Record<number, number> = {}
+  const wrong: string[] = []
+  for (let columns = 25; columns <= 60; columns++) {
+    want[columns] = columns >= 55 ? '≡ context' : '≡'
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: columns } })
+    await clock.advance(1000)
+    const label = String((await ui.find({ key: 'context' }))?.props.label)
+    read[columns] = label
+    const [at, words] = [await columnOf(ui, 'context'), await columnOf(ui, 'dumb-memory')]
+    if (words < 0 || at + label.length + 1 > words) wrong.push(`${columns}: "${label}" at ${at}, the words at ${words}`)
+    wordsAt[columns] = words
+    await ui.unmount()
+  }
+  expect(wrong).toEqual([])
+  expect([wordsAt[54], wordsAt[55]]).toEqual([27, 28])
+  expect(read).toEqual(want)
+})
+
+test('a press on the context button opens the same pane, titled Context, and hands it the keyboard', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on)
+  const opened: unknown[] = []
+  on('ui.open', ($, e) => {
+    opened.push([e.id, e.title, e.focus, e.closeOnEscape])
+    return { value: { isPlaced: true } }
+  })
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  await ui.press({ key: 'context' })
+  expect(opened).toEqual([['clawd-context', 'Context', true, true]])
   await ui.unmount()
 })
 
@@ -925,7 +1033,7 @@ const ZONE_PANE = {
   },
 } as const
 
-test('the Dumb Memory pane lists the context by category and says where the zone starts for this session', { options: LITTLE }, async ($, on) => {
+test('the Dumb Memory pane lists the context by category and says where the zone starts for this session', { options: SHOWN }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   sessionOf(on)
   const band = await $.ui.mount(PILLS)
@@ -942,6 +1050,7 @@ test('the Dumb Memory pane lists the context by category and says where the zone
   expect(await has('Dumb Memory starts at 412.7k (loaded 21.1k + 40% of the room left):')).toBe(true)
   expect(await has('a rule of thumb for where answers get worse.')).toBe(true)
   expect(await has('This session is 91.9k short of it. Past it: /compact or /new.')).toBe(true)
+  // The pill is named while show_autocompact draws it.
   expect(await has('Auto-compaction runs at 667k (the grey pill).')).toBe(true)
   await pane.unmount()
   await band.unmount()
@@ -1000,6 +1109,38 @@ test('a session at rest is asked again once a minute, no sooner', { options: LIT
   expect(asked.breakdowns).toBe(2)
   await ui.unmount()
 })
+
+test(
+  'with the three switches off a press on the context button asks for the breakdown once, the open pane then says everything, and the bar stays plain',
+  async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    const asked = sessionOf(on)
+    on('ui.open', () => ({ value: { isPlaced: true } }))
+    const band = await $.ui.mount(PILLS)
+    await clock.advance(61_000)
+    expect(asked.breakdowns).toBe(0)
+    const plain = (await imageOf(band, 'bar-1m'))?.source.rgba
+    const pane = await $.ui.mount({ ...ZONE_PANE, props: { ...ZONE_PANE.props, title: 'Context' } })
+    const has = async (text: string) => (await pane.find({ type: 'Text', text })) !== undefined
+    expect(await has('The session has not said yet what it holds.')).toBe(true)
+    await band.press({ key: 'context' })
+    // The once-a-second work runs on the first tick after the second changes.
+    await clock.advance(1400)
+    expect(asked.breakdowns).toBe(1)
+    // The pane is drawn again with the reading: the rows by kind, Dumb Memory's lines, and
+    // auto-compaction's with no word of a pill, which the band does not draw.
+    expect(await has(' System prompt              3.5k   0.4%')).toBe(true)
+    expect(await has('Dumb Memory starts at 412.7k (loaded 21.1k + 40% of the room left):')).toBe(true)
+    expect(await has('This session is 91.9k short of it. Past it: /compact or /new.')).toBe(true)
+    expect(await has('Auto-compaction runs at 667k.')).toBe(true)
+    // One ask, not a minute's round of them; the bar is drawn as it was, no little bar, zone or pill.
+    await clock.advance(61_000)
+    expect(asked.breakdowns).toBe(1)
+    expect((await imageOf(band, 'bar-1m'))?.source.rgba).toBe(plain)
+    await pane.unmount()
+    await band.unmount()
+  },
+)
 
 const TURN_END = { answer: '', durationMs: 0, isAborted: false, turnId: 'turn-1', reason: 'answer' } as const
 
@@ -1203,7 +1344,7 @@ test('a session id lookup that fails once the session is known is no new session
 })
 // The cells a drawn node takes across, measured as band.test.tsx measures a row: a row its
 // children's together, a column its widest, a Box at least the width it sets, an Image its
-// columns, each with its margins. A box laid over the others, at an absolute place, takes none
+// columns, a Button with no children its label, each with its margins. A box laid over the others, at an absolute place, takes none
 // of its parent's: it is measured by `overhangs`.
 type Laid = { type?: string; key?: unknown; props?: Record<string, unknown>; children?: (Laid | string)[] }
 const isOver = (node: Laid | string): boolean => typeof node !== 'string' && node.props?.position === 'absolute'
@@ -1215,7 +1356,9 @@ const cellsAcross = (node: Laid | string): number => {
   const inner =
     node.type === 'Image'
       ? number(props.columns)
-      : props.flexDirection === 'column'
+      : node.type === 'Button' && kids.length === 0
+        ? [...String(props.label ?? '')].length
+        : props.flexDirection === 'column'
         ? Math.max(0, ...kids.map(cellsAcross))
         : kids.map(cellsAcross).reduce((sum, cells) => sum + cells, 0)
   return number(props.marginLeft) + Math.max(number(props.width), inner) + number(props.marginRight)

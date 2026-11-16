@@ -3,7 +3,7 @@ import type { EngineInterface, Register, SessionContextUsage, Timer, TurnComplet
 
 import type { Model, Pose } from '../types'
 import { band, fit, PROBE, rowsOf } from './band'
-import { compactionEnds, compactionStarts, compactionTold, compactTokens, estimatedTokens, loadedTokens, syncContext, toldCompactionEnds, usedRows, wantContext } from './context'
+import { compactionEnds, compactionStarts, compactionTold, compactTokens, estimatedTokens, loadedTokens, syncContext, toldCompactionEnds, usedRows, wantContext, wantContextOnce } from './context'
 import type { Clawd } from './band'
 import { play, RULES, start, view, want } from './pose'
 import type { Flow, Rules } from './pose'
@@ -543,6 +543,13 @@ export const register: Register = (on, options) => {
       model: config.showModel ? { name, effort: model.effort } : null,
       rows,
       onZone: () => void openZonePane($).catch(() => undefined),
+      // The pane says everything whatever the switches: the breakdown is asked for once.
+      onContext: config.showContext
+        ? () => {
+            wantContextOnce()
+            void openZonePane($, 'Context').catch(() => undefined)
+          }
+        : undefined,
     }
     live.form = fit(view)?.form ?? null
     live.drawn = live.form === 'text' ? text : null

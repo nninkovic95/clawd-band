@@ -18,10 +18,11 @@ export function offerCommand($: EngineInterface) {
 
 const ZONE_PANE = 'clawd-context'
 
-// Opens the pane that says what Dumb Memory is: what a press on its name in
-// the band does.
-export function openZonePane($: EngineInterface) {
-  return $.ui.open({ id: ZONE_PANE, title: 'Dumb Memory', focus: true, closeOnEscape: true })
+// Opens the pane that says what the context holds and what Dumb Memory is: what
+// a press on its name in the band does, and one on the context button, titled
+// for it.
+export function openZonePane($: EngineInterface, title = 'Dumb Memory') {
+  return $.ui.open({ id: ZONE_PANE, title, focus: true, closeOnEscape: true })
 }
 
 // Sets a row as the person would in the settings menu, and says why where
@@ -115,7 +116,12 @@ export const zonePanel = (on: On, settings: Settings, nameOf: (model: string) =>
             </Text>
           </Box>
         )}
-        <Text>{compactAt === null ? 'Auto-compaction is off.' : `Auto-compaction runs at ${tokensText(compactAt)} (the grey pill).`}</Text>
+        {/* The pill is named only where the band draws it. */}
+        <Text>
+          {compactAt === null
+            ? 'Auto-compaction is off.'
+            : `Auto-compaction runs at ${tokensText(compactAt)}${settings.showAutocompact ? ' (the grey pill)' : ''}.`}
+        </Text>
         <Text> </Text>
         {/* What to do about it is /usage's to say: its recommendations are worked out from
             the person's usage, which a mod is not handed. */}

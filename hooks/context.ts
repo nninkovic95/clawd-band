@@ -19,6 +19,8 @@ const kept: {
   window: number | null
   isAsking: boolean
   isWanted: boolean
+  // One breakdown wanted whatever the switches: the Context pane was opened.
+  isWantedOnce: boolean
   askedAt: number
   // Moved on whenever what was asked of the session no longer holds: a
   // reading asked before it moved is dropped when it answers.
@@ -34,6 +36,7 @@ const kept: {
   window: null,
   isAsking: false,
   isWanted: false,
+  isWantedOnce: false,
   askedAt: 0,
   version: 0,
   compactions: 0,
@@ -100,6 +103,12 @@ export const wantContext = () => {
   kept.isWanted = true
 }
 
+// The Context pane says everything whatever the switches: the next pass asks
+// for the breakdown once, and no round of asking starts.
+export const wantContextOnce = () => {
+  kept.isWantedOnce = true
+}
+
 // A compaction starts: what the session holds is about to change, so its
 // reading is cleared at once, and one out is dropped when it answers.
 export function compactionStarts($: EngineInterface) {
@@ -155,13 +164,15 @@ export async function syncContext($: EngineInterface, now: number, sessionId: st
     const { context } = await inTime($, $.session.usage())
     // A change of model: the reading was of another window.
     const isOtherWindow = kept.window !== null && context.window !== kept.window
-    if (!kept.isWanted && !isDue && !isOtherWindow) return
+    const isOnce = kept.isWantedOnce
+    if (!kept.isWanted && !isDue && !isOtherWindow && !isOnce) return
     isAsked = true
     kept.askedAt = now
     // Taken down before the ask, so one wanted while it is out is asked for after it.
     kept.isWanted = false
+    kept.isWantedOnce = false
     // Without the detail only a session no reply has measured needs the estimate.
-    if (!isDetailed && context.percent !== undefined) {
+    if (!isDetailed && !isOnce && context.percent !== undefined) {
       kept.window = context.window
       return
     }

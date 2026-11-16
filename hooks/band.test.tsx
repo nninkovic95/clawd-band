@@ -474,7 +474,7 @@ test("the fill's rounded end is drawn on the empty part's colour", TEXT_BARS, as
   await ui.unmount()
 })
 
-test('each bar has a dim dot either side and a blank row parts each two, under an empty row on top', TEXT_BARS, async ($, on) => {
+test('each bar has a dim dot either side and a blank row parts each two, under a top row of only the probe and the context button', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const resetsAt = new Date(NOW + 3_600_000).toISOString()
   on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 40, resetsAt }]))
@@ -493,11 +493,14 @@ test('each bar has a dim dot either side and a blank row parts each two, under a
   const framed = /^(7d {3}|5h {3}|200k )·.{31}· +(\d+%|--)/
   expect([rows[0], rows[2], rows[4]].map(row => framed.test(row ?? ''))).toEqual([true, true, true])
   expect((await ui.find({ type: 'Text', text: '·' }))?.props.dimColor).toBe(true)
-  // The band's first row is empty to the eye, so it stands clear of the line above it: it holds
-  // only the one-cell picture the terminal is asked through, whose alt is a space.
+  // The band's first row stands clear of the line above it: it holds the one-cell picture the
+  // terminal is asked through, whose alt is a space, and the dim button that opens the Context pane.
   const top = (await ui.find({ key: 'band' })) as Drawn | undefined
-  const first = top?.children[0] as { type?: string; props: Record<string, unknown> } | undefined
+  const row = top?.children[0] as { props: Record<string, unknown>; children: { type?: string; key?: string; props: Record<string, unknown> }[] } | undefined
+  const first = row?.children[0]
+  expect(row?.props.key).toBe('top')
   expect([first?.type, first?.props.columns, first?.props.rows, first?.props.alt]).toEqual(['Image', 1, 1, ' '])
+  expect(row?.children.filter(kid => kid.type !== 'Box').map(kid => kid.props.key)).toEqual(['probe', 'context'])
   await ui.unmount()
 })
 
@@ -508,8 +511,9 @@ test('the band draws the sprite, both bars and the countdown', async ($, on) => 
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^5h/ })).toBeDefined()
-  // No refresh buttons and no row icons: the countdown follows the percent.
-  expect(await ui.find({ type: 'Button' })).toBe(undefined)
+  // No refresh buttons and no row icons: the countdown follows the percent. The one button opens
+  // the Context pane.
+  expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['context'])
   expect(await ui.find({ type: 'Text', text: /[↻☀❄]/ })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: '--' })).toBeDefined()
   expect(await ui.find({ key: 'model' })).toBeDefined()
@@ -1087,8 +1091,8 @@ test('narrowest, Clawd hides; the model line stays and the bars keep the room', 
 })
 
 // The cells a drawn node takes across: a row its children's together, a column
-// its widest, a Box at least the width it sets, an Image its columns, each with
-// its margins.
+// its widest, a Box at least the width it sets, an Image its columns, a Button
+// with no children its label, each with its margins.
 type Laid = { type?: string; props?: Record<string, unknown>; children?: (Laid | string)[] }
 const cellsAcross = (node: Laid | string): number => {
   if (typeof node === 'string') return [...node].length
@@ -1098,7 +1102,9 @@ const cellsAcross = (node: Laid | string): number => {
   const inner =
     node.type === 'Image'
       ? number(props.columns)
-      : props.flexDirection === 'column'
+      : node.type === 'Button' && kids.length === 0
+        ? [...String(props.label ?? '')].length
+        : props.flexDirection === 'column'
         ? Math.max(0, ...kids.map(cellsAcross))
         : kids.map(cellsAcross).reduce((sum, cells) => sum + cells, 0)
   return number(props.marginLeft) + Math.max(number(props.width), inner) + number(props.marginRight)
