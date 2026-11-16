@@ -1,11 +1,11 @@
-// Renders the README demo: a tour of every pose inside the whole band (sprite,
-// model caption, both usage bars with their reset countdowns, the context bar
-// with its cache countdown), as one GIF at twice the cell size.
+// Renders the README demo: a tour of every pose inside the whole band (Clawd,
+// the model line under him, the two usage bars with their reset countdowns,
+// the context bar with its cache countdown), as one GIF at twice the cell size.
 //
-// The sprite is drawn through kitty's graphics protocol, which terminal
-// recorders such as asciinema do not capture, so the demos are drawn here from
-// the mod's own frame data (hooks/sprite.ts) and the band's layout as
-// hooks/register.tsx lays it out, in Claude Code's dark-theme colours.
+// Clawd and the bars are drawn through kitty's graphics protocol, which
+// terminal recorders such as asciinema do not capture, so the demo is drawn
+// here from the mod's own frame data (hooks/sprite.ts) and the band's layout
+// as hooks/band.tsx lays it out, in Claude Code's dark-theme colours.
 //
 // Run from the repository root: node scripts/render-demo.ts
 // Needs node 23.6+ (type stripping), rsvg-convert and ImageMagick (magick).
@@ -15,42 +15,48 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { PICTURE_HEIGHT, PICTURE_WIDTH, CLAUDE_ORANGE, picturesIn, PICTURE_ROWS, PIXEL_WIDTH, POSES, SCALE, TEXT_COLUMNS } from '../hooks/sprite.ts'
+import { boxPixels } from '../hooks/picture.ts'
+import { BOX_COLUMNS, BOX_ROWS, CLAUDE_ORANGE, picturesIn, PIXEL_HEIGHT, POSES } from '../hooks/sprite.ts'
 
 type Pose = keyof typeof POSES
 
-const picture = picturesIn(CLAUDE_ORANGE)
-
-// Layout, as in hooks/register.tsx.
-const SPRITE_COLUMNS = TEXT_COLUMNS
-const SPRITE_ROWS = PICTURE_ROWS
 const FRAME_MS = 400
-const LABEL = 3
-const PERCENT = 5
-const RESET = 12
 const COLUMNS = 72 // the terminal's body width in the demo
+
+const CELL_W = 12
+const CELL_H = 24
+const FONT = 'JetBrainsMono Nerd Font Mono, JetBrains Mono, DejaVu Sans Mono, monospace'
+const PAD = 16
+const ZOOM = 2 // rsvg-convert's zoom: the GIF at twice the drawn size
+
+// Clawd's pictures on a canvas the shape of his box of cells, as the mod draws
+// them for cells this shape.
+const canvas = boxPixels(BOX_COLUMNS, BOX_ROWS, CELL_H / CELL_W, PIXEL_HEIGHT / BOX_ROWS)
+const picture = picturesIn(CLAUDE_ORANGE, canvas.width)
+
+// Layout, as in hooks/band.tsx: a cell either side of Clawd, the label, a
+// blank cell either side of the bar, the percentage, the countdown, a free
+// cell at the right edge.
+const LABEL = 3 // "7d "
+const FRAME = 1
+const PERCENT = 4 // " 99%"
+const RESET = 12 // " 06d-23h-59m"
+const BARS = 1 + BOX_COLUMNS + 1
+const BAR = COLUMNS - BARS - LABEL - FRAME - FRAME - PERCENT - RESET - 1
 
 // Claude Code's dark theme.
 const THEME = {
   background: '#1c1c1f',
   text: 'rgb(255,255,255)',
   dim: 'rgb(140,140,140)',
-  inactive: 'rgb(153,153,153)',
-  success: 'rgb(78,186,101)',
-  warning: 'rgb(255,193,7)',
-  error: 'rgb(255,107,128)',
   note: 'rgb(110,110,118)',
-  cold: 'rgb(97,160,255)',
+  weekly: 'rgb(175,135,255)', // autoAccept
+  fiveHour: 'rgb(177,185,249)', // suggestion
+  context: 'rgb(215,119,87)', // claude
+  empty: 'rgb(153,153,153)', // inactive
+  cold: 'rgb(95,160,230)',
 }
-
-const ZOOM = 2 // rsvg-convert's zoom: the GIF at twice the drawn size
-
-const CELL_W = 12
-const CELL_H = 24
-const FONT = 'JetBrainsMono Nerd Font Mono, JetBrains Mono, DejaVu Sans Mono, monospace'
-const PAD = 16
-
-const barColor = (percent: number) => (percent >= 85 ? THEME.error : percent >= 60 ? THEME.warning : THEME.success)
+const EMPTY_SOLID = 0.4 // the empty part lets the terminal show through
 
 const countdown = (seconds: number, withDays: boolean): string => {
   const total = Math.max(0, seconds)
@@ -70,19 +76,25 @@ type Scene = {
   isCold?: boolean
 }
 
-// One scene per pose; the usage figures vary so the bar colours show too. The
+// One scene per pose, with the usage climbing as the session goes on. The
 // last one has sat idle past the cache lifetime.
 const SCENES: Scene[] = [
-  { pose: 'idle', title: 'idle', trigger: 'nothing running: stands, blinks now and then', sevenDay: 23, fiveHour: 12, context: 8 },
-  { pose: 'thinking', title: 'thinking', trigger: 'the model is thinking: scratches its head', sevenDay: 23, fiveHour: 18, context: 11 },
-  { pose: 'working', title: 'working', trigger: 'replying, or any other tool call: arms pumping', sevenDay: 24, fiveHour: 27, context: 15 },
+  { pose: 'idle', title: 'idle', trigger: 'nothing running: a steaming mug, or a doze', sevenDay: 23, fiveHour: 12, context: 8 },
+  { pose: 'waiting', title: 'waiting', trigger: 'a request is out and no word is back yet', sevenDay: 23, fiveHour: 14, context: 9 },
+  { pose: 'thinking', title: 'thinking', trigger: 'the model is thinking', sevenDay: 23, fiveHour: 18, context: 11 },
+  { pose: 'working', title: 'working', trigger: 'replying, or any tool not named below', sevenDay: 24, fiveHour: 27, context: 15 },
   { pose: 'reading', title: 'reading', trigger: 'Read, Grep, Glob, ToolSearch, Claude Docs read/query/guide', sevenDay: 26, fiveHour: 38, context: 22 },
   { pose: 'writing', title: 'writing', trigger: 'Edit, Write, NotebookEdit, Claude Docs edits', sevenDay: 31, fiveHour: 52, context: 30 },
   { pose: 'running', title: 'running', trigger: 'Bash, BashOutput, KillShell, TaskStop', sevenDay: 34, fiveHour: 64, context: 41 },
   { pose: 'searching', title: 'searching', trigger: 'WebFetch, WebSearch', sevenDay: 36, fiveHour: 73, context: 55 },
   { pose: 'delegating', title: 'delegating', trigger: 'Agent, Task, SendMessage, Workflow, Skill', sevenDay: 39, fiveHour: 86, context: 63 },
-  { pose: 'questioning', title: 'questioning', trigger: 'AskUserQuestion: a "?" bobs beside it', sevenDay: 41, fiveHour: 91, context: 68 },
-  { pose: 'idle', title: 'cache cold', trigger: 'an hour since the last reply: no cache left', sevenDay: 41, fiveHour: 91, context: 68, isCold: true },
+  { pose: 'questioning', title: 'questioning', trigger: 'AskUserQuestion, while Claude writes the question', sevenDay: 41, fiveHour: 91, context: 68 },
+  { pose: 'compacting', title: 'compacting', trigger: 'the conversation is being compacted', sevenDay: 41, fiveHour: 92, context: 84 },
+  { pose: 'finished', title: 'finished', trigger: 'the turn ended with an answer', sevenDay: 42, fiveHour: 93, context: 31 },
+  { pose: 'interrupted', title: 'interrupted', trigger: 'the turn was stopped with Esc', sevenDay: 42, fiveHour: 94, context: 33 },
+  { pose: 'refused', title: 'refused', trigger: 'the turn ended in a refusal', sevenDay: 42, fiveHour: 95, context: 34 },
+  { pose: 'failed', title: 'failed', trigger: 'the turn ended in an error', sevenDay: 43, fiveHour: 96, context: 35 },
+  { pose: 'idle', title: 'cache cold', trigger: 'an hour since the last reply: no cache left', sevenDay: 43, fiveHour: 96, context: 35, isCold: true },
 ]
 
 const MODEL = 'Opus 5.5'
@@ -113,90 +125,91 @@ const runs = (col: number, row: number, parts: Run[]): string => {
   return out
 }
 
-// Block characters drawn as cells, so the bars meet edge to edge as in kitty;
-// the empty part is `░`'s dot grid, as kitty draws the light shade.
-const cells = (col: number, row: number, count: number, color: string, shade = false): string => {
-  if (count <= 0) return ''
+// A pill: the line with round ends that spans `from` to `to` across a row,
+// drawn in by `inset` all round.
+const capsule = (x: number, y: number, from: number, to: number, inset: number, fill: string, solid = 1): string => {
+  const height = CELL_H - 2 * inset
+  return `<rect x="${x + from + inset}" y="${y + inset}" width="${to - from - 2 * inset}" height="${height}" rx="${height / 2}" fill="${fill}"${solid < 1 ? ` fill-opacity="${solid}"` : ''}/>`
+}
+
+// One bar as hooks/pill.ts draws it: the empty part with a line of air round
+// it, the fill inside a clear ring, and for the week a clear hairline between
+// each two days.
+const pill = (col: number, row: number, percent: number, color: string, segments: number): string => {
   const x = col * CELL_W
   const y = row * CELL_H
-  const fill = shade ? 'url(#shade)' : color
-  return `<rect x="${x}" y="${y}" width="${count * CELL_W}" height="${CELL_H}" fill="${fill}"/>`
-}
-
-// The day cuts of the weekly bar, as hooks/register.tsx draws them: in the
-// fill `▉` (a thin gap at the cell's right edge), in the empty part a thin `│`.
-const cuts = (col: number, row: number, width: number, filled: number): string => {
-  let out = ''
-  for (let i = 1; i < DAYS; i++) {
-    const cell = Math.round((i * width) / DAYS)
-    const x = (col + cell) * CELL_W
-    const y = row * CELL_H
-    if (cell < filled) out += `<rect x="${x + (CELL_W * 7) / 8}" y="${y}" width="${CELL_W / 8}" height="${CELL_H}" fill="${THEME.background}"/>`
-    else out += `<rect x="${x}" y="${y}" width="${CELL_W}" height="${CELL_H}" fill="${THEME.background}"/><rect x="${x + CELL_W / 2 - 0.75}" y="${y}" width="1.5" height="${CELL_H}" fill="${THEME.text}"/>`
+  const width = BAR * CELL_W
+  const line = Math.max(1, Math.round(CELL_H / 12))
+  const end = Math.max(CELL_H, (width * Math.min(100, percent)) / 100)
+  let out = capsule(x, y, 0, width, line, THEME.empty, EMPTY_SOLID)
+  if (percent > 0) out += capsule(x, y, 0, end, 2 * line, THEME.background) + capsule(x, y, 0, end, 3 * line, color)
+  for (let day = 1; day < segments; day++) {
+    out += `<rect x="${x + (day * width) / segments - line / 2}" y="${y}" width="${line}" height="${CELL_H}" fill="${THEME.background}"/>`
   }
   return out
 }
 
-const sprite = (rgbaBase64: string, col: number, row: number): string => {
-  const px = Buffer.from(rgbaBase64, 'base64')
-  const w = (SPRITE_COLUMNS * CELL_W) / PICTURE_WIDTH
-  const h = (SPRITE_ROWS * CELL_H) / PICTURE_HEIGHT
-  let out = ''
-  for (let y = 0; y < PICTURE_HEIGHT; y++) {
-    for (let x = 0; x < PICTURE_WIDTH; x++) {
-      const i = ((y * SCALE + 2) * PIXEL_WIDTH + (x * SCALE + 2)) * 4
-      if (px[i + 3] === 0) continue
-      const fill = `rgb(${px[i]},${px[i + 1]},${px[i + 2]})`
-      out += `<rect x="${(col * CELL_W + x * w).toFixed(2)}" y="${(row * CELL_H + y * h).toFixed(2)}" width="${(w + 0.05).toFixed(2)}" height="${(h + 0.05).toFixed(2)}" fill="${fill}"/>`
+// Clawd's picture scaled into his box, each row of the canvas as runs of one colour.
+const sprite = ({ rgba, width, height }: { rgba: string; width: number; height: number }, col: number, row: number): string => {
+  const px = Buffer.from(rgba, 'base64')
+  const w = (BOX_COLUMNS * CELL_W) / width
+  const h = (BOX_ROWS * CELL_H) / height
+  const colorAt = (x: number, y: number): string | null => {
+    const i = (y * width + x) * 4
+    return x < width && px[i + 3] !== 0 ? `rgb(${px[i]},${px[i + 1]},${px[i + 2]})` : null
+  }
+  // Whole pixels, no smoothing: the rows meet without a seam.
+  let out = '<g shape-rendering="crispEdges">'
+  for (let y = 0; y < height; y++) {
+    let from = 0
+    for (let x = 1; x <= width; x++) {
+      if (colorAt(x, y) === colorAt(from, y)) continue
+      const fill = colorAt(from, y)
+      if (fill) {
+        out += `<rect x="${(col * CELL_W + from * w).toFixed(2)}" y="${(row * CELL_H + y * h).toFixed(2)}" width="${((x - from) * w + 0.05).toFixed(2)}" height="${(h + 0.05).toFixed(2)}" fill="${fill}"/>`
+      }
+      from = x
     }
   }
-  return out
+  return `${out}</g>`
 }
 
 const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): string => {
-  const caption = `${MODEL} ${EFFORT}`
-  const left = Math.max(TEXT_COLUMNS + 1, caption.length)
-  const barWidth = Math.max(4, COLUMNS - left - 1 - LABEL - PERCENT - RESET)
+  const caption = `${MODEL} · ${EFFORT}`
   const elapsed = Math.floor(elapsedMs / 1000)
 
-  const bar = (row: number, label: string, percent: number, timer: string, color?: string) => {
-    const col = left + 1
-    const filled = Math.min(barWidth, Math.round((percent / 100) * barWidth))
+  const bar = (row: number, label: string, percent: number, timer: string, color: string, timerColor = THEME.text) => {
+    const col = BARS + LABEL + FRAME
     return (
-      runs(col, row, [{ text: `${label} `, color: THEME.dim }]) +
-      cells(col + LABEL, row, filled, color ?? barColor(percent)) +
-      cells(col + LABEL + filled, row, barWidth - filled, THEME.inactive, true) +
-      (label === '7d' ? cuts(col + LABEL, row, barWidth, filled) : '') +
-      runs(col + LABEL + barWidth, row, [
-        { text: ` ${String(Math.round(percent)).padStart(3)}%`, color: THEME.text },
-        { text: ` ${timer.padStart(RESET - 1)}`, color: color ?? THEME.text, bold: true },
+      runs(BARS, row, [{ text: label, color: THEME.dim }]) +
+      pill(col, row, percent, color, label === '7d' ? DAYS : 1) +
+      runs(col + BAR + FRAME, row, [
+        { text: `${Math.round(percent)}%`.padStart(PERCENT), color: THEME.text },
+        { text: ` ${timer.padStart(RESET - 1)}`, color: timerColor, bold: true },
       ])
     )
   }
 
+  // Three rows of Clawd and bars, the model line under him, and for the tour a note below.
   const rows = note ? 6 : 4
   const width = COLUMNS * CELL_W + PAD * 2
   const height = rows * CELL_H + PAD * 2
-  const captionCol = Math.floor((left - caption.length) / 2)
   const body =
-    sprite(picture(scene.pose, 0, frame), Math.floor((left - SPRITE_COLUMNS) / 2), 0) +
-    runs(captionCol, 3, [
+    sprite(picture(scene.pose, 0, frame), 1, 0) +
+    runs(1 + Math.floor((BOX_COLUMNS - caption.length) / 2), 3, [
       { text: MODEL, color: THEME.text, bold: true },
-      { text: ` ${EFFORT}`, color: THEME.dim },
+      { text: ` · ${EFFORT}`, color: THEME.dim },
     ]) +
-    bar(1, '7d', scene.sevenDay, countdown(SEVEN_DAY_RESET - elapsed, true)) +
-    bar(2, '5h', scene.fiveHour, countdown(FIVE_HOUR_RESET - elapsed, false)) +
+    bar(0, '7d', scene.sevenDay, countdown(SEVEN_DAY_RESET - elapsed, true), THEME.weekly) +
+    bar(1, '5h', scene.fiveHour, countdown(FIVE_HOUR_RESET - elapsed, false), THEME.fiveHour) +
     (scene.isCold
-      ? bar(3, WINDOW, scene.context, 'cold', THEME.cold)
-      : bar(3, WINDOW, scene.context, countdown(CACHE_LEFT - elapsed, false))) +
+      ? bar(2, WINDOW, scene.context, 'cold', THEME.cold, THEME.cold)
+      : bar(2, WINDOW, scene.context, countdown(CACHE_LEFT - elapsed, false), THEME.context)) +
     (note ? runs(0, 5, [{ text: note, color: THEME.note }]) : '')
 
-  // The light shade: one dot in each 2 × 2 of a 6 × 6 grid per cell.
-  const dot = CELL_W / 6
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-<defs><pattern id="shade" width="${dot * 2}" height="${dot * 2}" patternUnits="userSpaceOnUse"><rect width="${dot}" height="${dot}" fill="${THEME.inactive}"/></pattern></defs>
 <rect width="100%" height="100%" rx="10" fill="${THEME.background}"/>
-<g transform="translate(${PAD},${PAD})" font-family="${FONT}" font-size="20" shape-rendering="crispEdges">${body}</g>
+<g transform="translate(${PAD},${PAD})" font-family="${FONT}" font-size="20">${body}</g>
 </svg>`
 }
 

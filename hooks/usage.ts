@@ -143,7 +143,22 @@ const sync: {
   nextAt: number
   isAsking: boolean
   reason: string
-} = { readAt: 0, kept: null, session: null, isStale: false, key: null, tries: 0, nextAt: 0, isAsking: false, reason: '' }
+  // When this copy first saw the session, and the session it last left a note for.
+  since: number
+  noted: string | null
+} = {
+  readAt: 0,
+  kept: null,
+  session: null,
+  isStale: false,
+  key: null,
+  tries: 0,
+  nextAt: 0,
+  isAsking: false,
+  reason: '',
+  since: 0,
+  noted: null,
+}
 
 async function keep($: EngineInterface, usage: Usage | null, readAt: number) {
   if (!usage || sameUsage(usage, sync.kept)) return
@@ -222,6 +237,29 @@ async function askAccount($: EngineInterface, now: number) {
   }
 }
 
+const WINDOWS = ['fiveHour', 'sevenDay'] as const
+const MISSING_AFTER_MS = 5_000
+
+// A usage row with nothing to show some seconds into a session is a fault to
+// find, or an account with no such window. What this copy knew then is kept
+// in the store under `missing`, once a session: nothing else outlives it.
+async function noteMissing($: EngineInterface, now: number, sessionId: string) {
+  if (sync.noted === sessionId || now - sync.since < MISSING_AFTER_MS) return
+  const usage = await read($, usageAtom)
+  const missing = WINDOWS.filter(name => !usage?.[name])
+  if (missing.length === 0) return
+  sync.noted = sessionId
+  const stored = asStoredUsage(await $.store.get('usage'))?.usage
+  await $.store.set('missing', {
+    at: new Date(now).toISOString(),
+    session: sessionId,
+    missing,
+    stored: WINDOWS.filter(name => stored?.[name]),
+    reported: (await $.session.usage()).rateLimits.map(limit => limit.kind),
+    account: sync.reason || 'not asked',
+  })
+}
+
 // Run once a second: the store first (no network), then the session's own
 // reading when the session is new, then the account if the reading is not live.
 export async function syncUsage($: EngineInterface, now: number, sessionId: string) {
@@ -230,9 +268,11 @@ export async function syncUsage($: EngineInterface, now: number, sessionId: stri
     // Marked first, so a slow pass is not joined by the next second's; a
     // failed one is tried again.
     sync.session = sessionId
+    sync.since = now
     await loadSessionReading($, now).catch(() => {
       sync.session = null
     })
   }
   await askAccount($, now)
+  await noteMissing($, now, sessionId).catch(() => undefined)
 }

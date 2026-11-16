@@ -45,6 +45,9 @@ const BAND = {
   },
 } as const
 
+// The bars as text, whatever the terminal draws: the tests of their cells.
+const TEXT_BARS = { options: { bar_style: 'blocks' } } as const
+
 // The moment every test's clock starts at.
 const NOW = Date.parse('2026-10-11T15:00:00Z')
 
@@ -98,7 +101,7 @@ test('countdown and colours', async () => {
   expect(countdown('2026-10-14T19:30:00Z', now, true)).toBe('03d-04h-30m')
   expect(countdown('2026-10-14T19:30:00Z', now, true).length).toBe(countdown('2026-10-11T18:04:05Z', now).length)
   const defaults = settings({})
-  expect([defaults.weeklyColor, defaults.fiveHourColor, defaults.contextColor]).toEqual([
+  expect([defaults.weeklyColor.text, defaults.fiveHourColor.text, defaults.contextColor.text]).toEqual([
     'autoAccept',
     'suggestion',
     'claude',
@@ -116,7 +119,7 @@ test('the context row: window label and cache countdown', async () => {
   expect(cacheCountdown(null, hour, now)).toBe('--h---m---s')
   expect(cacheCountdown(now - 48_000, hour, now)).toBe('00h-59m-12s')
   expect(cacheCountdown(now - hour, hour, now)).toBe('cold')
-  expect(settings({}).cold).toBe('blue')
+  expect(settings({}).cold.text).toBe('blue')
 })
 
 test('the effort pill leaves the hint line', async () => {
@@ -228,7 +231,7 @@ const emptyBar = async (ui: { find: (query: { key: string }) => Promise<unknown>
   return run ? words(run).length : undefined
 }
 
-test('a day mark is drawn in the colour of the part it sits in, and no bar is drawn dim', async ($, on) => {
+test('a day mark is drawn in the colour of the part it sits in, and no bar is drawn dim', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const resetsAt = new Date(NOW + 6 * 86_400_000).toISOString()
   on('session.usage', () => usageOf([{ kind: 'seven_day', percentUsed: 40, resetsAt }]))
@@ -256,9 +259,9 @@ test('a day mark is drawn in the colour of the part it sits in, and no bar is dr
 for (const [used, days, warned] of [
   [60, 4, 0],
   [30, 4, 0],
-  [85, 2, 3],
+  [85, 2, 4],
 ]) {
-  test(`the last 3 days of the weekly bar warn only within them, when the week is used ahead of time (${used}%, ${days} days left)`, async ($, on) => {
+  test(`the last 3 days of the weekly bar warn only within them, when the week is used ahead of time (${used}%, ${days} days left)`, TEXT_BARS, async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     const resetsAt = new Date(NOW + days! * 86_400_000).toISOString()
     on('session.usage', () => usageOf([{ kind: 'seven_day', percentUsed: used!, resetsAt }]))
@@ -266,10 +269,10 @@ for (const [used, days, warned] of [
     on('ui.blit', () => ({ value: {} }))
     const ui = await $.ui.mount(BAND)
     await clock.advance(1)
-    // 75 columns with the "200k " label and a blank cell either side: a 29-cell bar, 23 day cells
-    // and 6 marks, the last 3 days from day cell 13. 60% with 4 days to go leaves 2.8 days'
+    // 75 columns with the "200k " label and a blank cell either side: a 33-cell bar, 27 day cells
+    // and 6 marks, the last 3 days from day cell 15. 60% with 4 days to go leaves 2.8 days'
     // worth, ahead of time, but the week is not yet in its last 3 days: nothing warns. 30% is not
-    // ahead. 85% with 2 days to go leaves 1.05: the fill ends at cell 19, and the 3 unused cells
+    // ahead. 85% with 2 days to go leaves 1.05: the fill ends at cell 23, and the 4 unused cells
     // after it warn.
     expect(await warnedCells(ui)).toBe(warned)
     await ui.unmount()
@@ -304,16 +307,16 @@ test('options are checked, a bad colour falls back to its default', async () => 
   expect(custom.showModel).toBe(false)
   expect(custom.spriteRgb).toEqual([0x33, 0xaa, 0xff])
   expect(custom.spriteColor).toBe('#33aaff')
-  expect([custom.weeklyColor, custom.fiveHourColor]).toEqual(['#00ff00', 'suggestion'])
-  expect(custom.warning).toBe('magenta')
-  expect(settings({ bar_color_warning: 'red; drop' }).warning).toBe('error')
-  expect(custom.empty).toBe('subtle')
+  expect([custom.weeklyColor.text, custom.fiveHourColor.text]).toEqual(['#00ff00', 'suggestion'])
+  expect(custom.warning.text).toBe('magenta')
+  expect(settings({ bar_color_warning: 'red; drop' }).warning.text).toBe('error')
+  expect(custom.empty.text).toBe('subtle')
   expect(settings({ sprite_color: 'not a colour' }).spriteRgb).toEqual(CLAUDE_ORANGE)
 })
 
 test('a sprite colour repaints the body only', async () => {
-  const px = Uint8Array.fromBase64(picturesIn([0, 0, 255])('plain', 0, 0))
-  const orange = Uint8Array.fromBase64(picturesIn(CLAUDE_ORANGE)('plain', 0, 0))
+  const px = Uint8Array.fromBase64(picturesIn([0, 0, 255])('plain', 0, 0).rgba)
+  const orange = Uint8Array.fromBase64(picturesIn(CLAUDE_ORANGE)('plain', 0, 0).rgba)
   expect(px.length).toBe(orange.length)
   let body = 0
   for (let i = 0; i < px.length; i += 4) {
@@ -340,7 +343,7 @@ test('every frame of every pose is a whole RGBA picture, and every pose has its 
   // 14 cells of two art pixels by 4 rows of four, each art pixel 5 by 5.
   expect([PIXEL_WIDTH, PIXEL_HEIGHT]).toEqual([140, 80])
   const picture = picturesIn(CLAUDE_ORANGE)
-  for (const [pose, roll, n] of everyFrame()) expect(Uint8Array.fromBase64(picture(pose, roll, n)).length).toBe(bytes)
+  for (const [pose, roll, n] of everyFrame()) expect(Uint8Array.fromBase64(picture(pose, roll, n).rgba).length).toBe(bytes)
   for (const pose of POSE_NAMES) expect(POSES[pose].alt.startsWith('Clawd ')).toBe(true)
 })
 
@@ -372,7 +375,7 @@ test(
     // The same frame twice: as the picture in a wide band, as text in a narrow one.
     const wide = await $.ui.mount(BAND)
     await clock.advance(1)
-    const source = (await wide.find({ key: 'clawd' }))?.props.source as { rgba: string } | undefined
+    const source = (await wide.find({ key: 'clawd' }))?.props.source as { rgba: string; width: number } | undefined
     await wide.unmount()
     const slim = await $.ui.mount(narrow(30))
     await clock.advance(1)
@@ -384,14 +387,17 @@ test(
         .flatMap(run => [...words(run)].map(c => (c !== ' ' && run.props.color === 'claude' ? 'x' : ' ')))
         .join(''),
     )
-    // A picture cell is 10 by 20 pixels of the 140-pixel-wide picture; it is the
-    // body's when any of its pixels has the body's colour.
+    // A picture cell is 10 by 20 pixels of the art, which sits in the middle of a wider
+    // canvas; it is the body's when any of its pixels has the body's colour.
     const px = Uint8Array.fromBase64(source?.rgba ?? '')
+    const width = source?.width ?? 0
+    const isOrange = (at: number) => px[at] === 215 && px[at + 1] === 119 && px[at + 2] === 87 && px[at + 3] === 255
+    // The art starts two and a half cells left of the body: the logo's arm row is `  ▝▜█████▛▘`.
+    const armRow = 2 * 20 + 5
+    const left = Array.from({ length: width }, (_, x) => x).find(x => isOrange((armRow * width + x) * 4))! - 25
     const isBody = (cell: number, row: number) =>
-      Array.from({ length: 20 }, (_, dy) => (row * 20 + dy) * 140 + cell * 10).some(start =>
-        Array.from({ length: 10 }, (_, dx) => (start + dx) * 4).some(
-          at => px[at] === 215 && px[at + 1] === 119 && px[at + 2] === 87 && px[at + 3] === 255,
-        ),
+      Array.from({ length: 20 }, (_, dy) => (row * 20 + dy) * width + left + cell * 10).some(start =>
+        Array.from({ length: 10 }, (_, dx) => (start + dx) * 4).some(isOrange),
       )
     const picture = [1, 2, 3].map(row => Array.from({ length: 14 }, (_, cell) => (isBody(cell, row) ? 'x' : ' ')).join(''))
     expect(picture).toEqual(text)
@@ -434,7 +440,7 @@ test('every pose has text frames of three whole rows, and a prop keeps its colou
   expect(text('questioning', 0, 0)).toBe(text('questioning', 0, 1))
 })
 
-test('a window used up reads 99%, never 100%, and its bar is full', async ($, on) => {
+test('a window used up reads 99%, never 100%, and its bar is full', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const resetsAt = new Date(NOW + 3_600_000).toISOString()
   on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 100, resetsAt }]))
@@ -444,17 +450,17 @@ test('a window used up reads 99%, never 100%, and its bar is full', async ($, on
   await clock.advance(1)
   expect(await ui.find({ type: 'Text', text: ' 99%' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /100%/ })).toBe(undefined)
-  // 75 columns: 1, 20 for Clawd, 1, "200k " 5 (the test's context window), the bar,
-  // a blank cell either side 2, " 99%" 4, " 01h-00m-00s" 12, 1 at the edge: the bar is 29,
+  // 75 columns: 1, 16 for Clawd, 1, "200k " 5 (the test's context window), the bar,
+  // a blank cell either side 2, " 99%" 4, " 01h-00m-00s" 12, 1 at the edge: the bar is 33,
   // its ends caps.
-  expect(await ui.find({ type: 'Text', text: /^█{27}$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^█{31}$/ })).toBeDefined()
   await ui.unmount()
 })
 
 // A node's text, its children's in order.
 const textOf = (node: Drawn | string): string => (typeof node === 'string' ? node : node.children.map(textOf).join(''))
 
-test("the fill's rounded end is drawn on the empty part's colour", async ($, on) => {
+test("the fill's rounded end is drawn on the empty part's colour", TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const resetsAt = new Date(NOW + 3_600_000).toISOString()
   on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 40, resetsAt }]))
@@ -468,7 +474,7 @@ test("the fill's rounded end is drawn on the empty part's colour", async ($, on)
   await ui.unmount()
 })
 
-test('each bar has a blank cell either side and a blank row parts each two, under an empty row on top', async ($, on) => {
+test('each bar has a blank cell either side and a blank row parts each two, under an empty row on top', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const resetsAt = new Date(NOW + 3_600_000).toISOString()
   on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 40, resetsAt }]))
@@ -478,16 +484,18 @@ test('each bar has a blank cell either side and a blank row parts each two, unde
   await clock.advance(1)
   const bars = (await ui.find({ key: 'bars' })) as Drawn | undefined
   const rows = (bars ? nodes(bars) : []).map(textOf)
-  // 75 columns: 1, 20 for Clawd, 1, "200k " 5, a blank cell either side of the bar 2, " 99%" 4,
-  // " 00h-59m-59s" 12, 1 at the edge: the bar is 29.
+  // 75 columns: 1, 16 for Clawd, 1, "200k " 5, a blank cell either side of the bar 2, " 99%" 4,
+  // " 00h-59m-59s" 12, 1 at the edge: the bar is 33.
   expect(rows.length).toBe(5)
   expect([rows[1], rows[3]].map(row => row?.trim())).toEqual(['', ''])
   // The label, a blank cell, the bar from its first cap to its last, a blank cell, the percentage.
-  const framed = /^(7d {3}|5h {3}|200k ) .{27} +(\d+%|--)/
+  const framed = /^(7d {3}|5h {3}|200k ) .{31} +(\d+%|--)/
   expect([rows[0], rows[2], rows[4]].map(row => framed.test(row ?? ''))).toEqual([true, true, true])
-  // The band's first row is empty, so it stands clear of the line above it.
+  // The band's first row is empty to the eye, so it stands clear of the line above it: it holds
+  // only the one-cell picture the terminal is asked through, whose alt is a space.
   const top = (await ui.find({ key: 'band' })) as Drawn | undefined
-  expect(top ? textOf(top.children[0]!).trim() : undefined).toBe('')
+  const first = top?.children[0] as { type?: string; props: Record<string, unknown> } | undefined
+  expect([first?.type, first?.props.columns, first?.props.rows, first?.props.alt]).toEqual(['Image', 1, 1, ' '])
   await ui.unmount()
 })
 
@@ -528,7 +536,7 @@ for (const [used, colours] of [
   [[31, 40, 12], ['autoAccept', 'suggestion', 'claude']],
   [[70, 90, 95], ['autoAccept', 'suggestion', 'claude']],
 ] as const) {
-  test(`each bar keeps its own colour at any level (${used.join(', ')}%)`, async ($, on) => {
+  test(`each bar keeps its own colour at any level (${used.join(', ')}%)`, TEXT_BARS, async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     const resetsAt = new Date(NOW + 3_600_000).toISOString()
     on('session.usage', () =>
@@ -551,7 +559,7 @@ for (const [used, colours] of [
 
 test(
   'the bars take the configured colours',
-  { options: { bar_color_five_hour: '#00ff00', bar_color_empty: 'gray' } },
+  { options: { bar_style: 'blocks', bar_color_five_hour: '#00ff00', bar_color_empty: 'gray' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     mock.store(on, {
@@ -696,7 +704,7 @@ const account = (on: On, answer: () => { status: number; text: string }) => {
   return count
 }
 
-test('an answer with no open window is not asked for again', async ($, on) => {
+test('an answer with no open window is not asked for again', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   let next: string | null = '2026-10-11T15:00:10Z'
@@ -710,7 +718,7 @@ test('an answer with no open window is not asked for again', async ($, on) => {
   await ui.unmount()
 })
 
-test('a request that fails is tried again, five times at most', async ($, on) => {
+test('a request that fails is tried again, five times at most', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   const count = account(on, () => ({ status: 500, text: '' }))
@@ -735,7 +743,7 @@ test('a first request that fails and then works fills the bars without a reply',
   await ui.unmount()
 })
 
-test('a 429 ends the tries', async ($, on) => {
+test('a 429 ends the tries', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   const count = account(on, () => ({ status: 429, text: '' }))
@@ -799,44 +807,52 @@ test('the account is asked only while the reading is not live', async () => {
 // tall as wide; one cell is 10 pixels wide here.
 const kittyFit = (box: { columns: number; rows: number }, source: { width: number; height: number }, aspect: number) => {
   const scale = Math.min((box.columns * 10) / source.width, (box.rows * 10 * aspect) / source.height)
-  return { height: source.height * scale, cellHeight: 10 * aspect }
+  return { width: source.width * scale, height: source.height * scale, boxWidth: box.columns * 10, boxHeight: box.rows * 10 * aspect }
 }
 
-test('the picture fills its four rows on any common font, so Clawd is as tall as in text', async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  on('ui.render', core)
-  on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(BAND)
-  await clock.advance(1)
-  const props = (await ui.find({ key: 'clawd' }))?.props as {
-    columns: number
-    rows: number
-    source: { width: number; height: number }
-  }
-  expect(props.rows).toBe(4)
-  // kitty draws the picture whole with square pixels, centred in its box: measured on kitty 0.50,
-  // although the engine's types say the picture is scaled to fill the box. Cells from 1:2 (the
-  // logo's own) up to 1:2.8, the band's claim, fill the four rows; at 1:2.9 the width runs out first.
-  const fills = (aspect: number) => {
-    const fit = kittyFit(props, props.source, aspect)
-    return fit.height.toFixed(3) === (4 * fit.cellHeight).toFixed(3)
-  }
-  expect([2, 2.34, 2.6, 2.8, 2.9].map(fills)).toEqual([true, true, true, true, false])
-  await ui.unmount()
-})
+test(
+  'at the cell ratio set the fitted picture is its whole box; on squatter cells it still fills its rows',
+  { options: { cell_ratio: '2.34' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    on('ui.render', core)
+    on('ui.blit', () => ({ value: {} }))
+    const ui = await $.ui.mount(BAND)
+    await clock.advance(1)
+    const props = (await ui.find({ key: 'clawd' }))?.props as {
+      columns: number
+      rows: number
+      source: { width: number; height: number }
+    }
+    expect(props.rows).toBe(3)
+    // kitty draws the picture whole with square pixels, centred in its box (measured on kitty
+    // 0.50); the engine's types say it is scaled to fill the box. Within half a pixel, the two
+    // are one picture at the ratio set. Squatter cells leave room beside it; taller ones over it.
+    const fit = (aspect: number) => {
+      const { width, height, boxWidth, boxHeight } = kittyFit(props, props.source, aspect)
+      return [Math.abs(width - boxWidth) < 0.5, Math.abs(height - boxHeight) < 0.5]
+    }
+    expect([2, 2.34, 2.6].map(fit)).toEqual([
+      [false, true],
+      [true, true],
+      [true, false],
+    ])
+    await ui.unmount()
+  },
+)
 
-test('the bars take every cell left, with a one-cell gap either side of Clawd', async ($, on) => {
+test('the bars take every cell left, with a one-cell gap either side of Clawd', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  // Fixed: Clawd's box 20, "5h " 3, a blank cell either side of the bars 2, " 99%" 4,
+  // Fixed: Clawd's box 16, "5h " 3, a blank cell either side of the bars 2, " 99%" 4,
   // " 04h-59m-59s" 12, one cell at the right edge, and the gaps before and after Clawd at 1
-  // each: 44. The bars take the rest.
+  // each: 40. The bars take the rest.
   for (const [columns, bar, before, after] of [
-    [75, 31, 1, 1],
-    [80, 36, 1, 1],
-    [100, 56, 1, 1],
-    [120, 76, 1, 1],
+    [75, 35, 1, 1],
+    [80, 40, 1, 1],
+    [100, 60, 1, 1],
+    [120, 80, 1, 1],
   ]) {
     const ui = await $.ui.mount(narrow(columns!))
     await clock.advance(1)
@@ -849,22 +865,22 @@ test('the bars take every cell left, with a one-cell gap either side of Clawd', 
   }
 })
 
-test('the bars leave Clawd 20 columns and a gap, in either form', async ($, on) => {
+test('the bars leave Clawd 16 columns and a gap, in either form', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   let refuse = false
   on('ui.blit', () => ({ value: refuse ? { deny: 'the Image draws its alt here: no pictures in a test' } : {} }))
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
-  // 75 columns: 1, 20 for Clawd, 1 gap, "5h ", a blank cell either side of the bar, " 99%",
-  // " 04h-59m-59s", 1 at the edge leave 31, and the bar takes them all. The five-hour bar, empty: the weekly one has marks.
+  // 75 columns: 1, 16 for Clawd, 1 gap, "5h ", a blank cell either side of the bar, " 99%",
+  // " 04h-59m-59s", 1 at the edge leave 35, and the bar takes them all. The five-hour bar, empty: the weekly one has marks.
   const empty = () => emptyBar(ui)
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
-  expect(await empty()).toBe(31)
+  expect(await empty()).toBe(35)
   refuse = true
   await clock.advance(2000)
   expect(await ui.find({ key: 'clawd' })).toBe(undefined)
-  expect(await empty()).toBe(31)
+  expect(await empty()).toBe(35)
   await ui.unmount()
 })
 
@@ -875,30 +891,30 @@ test('both forms of Clawd sit on the same centre of his column', async ($, on) =
   on('ui.blit', () => ({ value: refuse ? { deny: 'the Image draws its alt here: no pictures in a test' } : {} }))
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
-  // Where Clawd's box starts in his 20-cell column, pinned to its left so the margin is all the offset.
+  // Where Clawd's box starts in his 16-cell column, pinned to its left so the margin is all the offset.
   const placed = async () => {
     const place = (await ui.find({ key: 'clawd-place' }))?.props
     return [place?.alignSelf, place?.marginLeft]
   }
-  // The picture's box is 20 cells: centre 10. The text Clawd is the CLI logo's 14: 3 in, centre 10.
+  // The picture's box is 16 cells: centre 8. The text Clawd is the CLI logo's 14: 1 in, centre 8.
   expect(await placed()).toEqual(['flex-start', 0])
   refuse = true
   await clock.advance(2000)
   expect(await ui.find({ key: 'clawd' })).toBe(undefined)
-  expect(await placed()).toEqual(['flex-start', 3])
+  expect(await placed()).toEqual(['flex-start', 1])
   await ui.unmount()
 })
 
 // The band at a given width, Clawd drawn as a picture.
 const narrow = (bodyColumns: number) => ({ ...BAND, props: { ...BAND.props, bodyColumns } })
 
-test('a band too narrow for whole countdowns shows their two biggest units', async ($, on) => {
+test('a band too narrow for whole countdowns shows their two biggest units', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(narrow(45))
+  const ui = await $.ui.mount(narrow(41))
   await clock.advance(1)
-  // 45 cells: 1, 20 for Clawd, 1 gap, "5h ", 5 of bar and its 2 blank cells, " 99%", " --h---m", 1 at the edge.
+  // 41 cells: 1, 16 for Clawd, 1 gap, "5h ", 5 of bar and its 2 blank cells, " 99%", " --h---m", 1 at the edge.
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /--h---m---s/ })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /--h---m$/ }))?.text).toBe('--h---m')
@@ -906,29 +922,30 @@ test('a band too narrow for whole countdowns shows their two biggest units', asy
   await ui.unmount()
 })
 
-test('narrower still, the countdowns go and the bars keep the room', async ($, on) => {
+test('narrower still, the countdowns go and the bars keep the room', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(narrow(38))
+  const ui = await $.ui.mount(narrow(34))
   await clock.advance(1)
-  // 38 cells: 1, 20 for Clawd, 1 gap, "5h ", 6 of bar and its 2 blank cells, " 99%", 1 at the edge.
+  // 34 cells: 1, 16 for Clawd, 1 gap, "5h ", 6 of bar and its 2 blank cells, " 99%", 1 at the edge.
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /--[hd]/ })).toBe(undefined)
   expect(await emptyBar(ui)).toBe(6)
   await ui.unmount()
 })
 
-test('narrower again, Clawd turns to the 14-cell text and the bars keep the room', async ($, on) => {
+test('narrower again, Clawd turns to the 14-cell text and the bars keep the room', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(narrow(33))
+  const ui = await $.ui.mount(narrow(31))
   await clock.advance(1)
-  // 33 cells: 1, 14 for Clawd in text, 1 gap, "5h ", 7 of bar and its 2 blank cells, " 99%", 1 at the edge.
+  // 31 cells: 1, 14 for Clawd in text, 1 gap, "5h ", 5 of bar and its 2 blank cells, " 99%", 1 at the edge.
+  // The 16-cell picture would leave the bar 3, under its least.
   expect(await ui.find({ key: 'clawd' })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: '▝▜█████▛▘' })).toBeDefined()
-  expect(await emptyBar(ui)).toBe(7)
+  expect(await emptyBar(ui)).toBe(5)
   await ui.unmount()
 })
 
@@ -936,8 +953,9 @@ test('in a band too narrow for the picture, no picture is sent and the text Claw
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   let blits = 0
-  on('ui.blit', () => {
-    blits += 1
+  on('ui.blit', (_, e) => {
+    // Clawd's own pictures: the band's probe is swapped beside them.
+    if (e.key === 'clawd') blits += 1
     return { value: {} }
   })
   const ui = await $.ui.mount(narrow(30))
@@ -983,8 +1001,9 @@ test('a picture that has not changed is not sent again', { options: { animate: f
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   let blits = 0
-  on('ui.blit', () => {
-    blits += 1
+  on('ui.blit', (_, e) => {
+    // Clawd's own pictures: the band's probe is swapped beside them.
+    if (e.key === 'clawd') blits += 1
     return { value: {} }
   })
   const ui = await $.ui.mount(BAND)
@@ -997,7 +1016,8 @@ test('a picture the band refused is sent again on the next tick', { options: { a
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   let blits = 0
-  on('ui.blit', () => {
+  on('ui.blit', (_, e) => {
+    if (e.key !== 'clawd') return { value: {} }
     blits += 1
     return { value: blits === 1 ? { deny: 'no band to draw in yet' } : {} }
   })
@@ -1007,7 +1027,7 @@ test('a picture the band refused is sent again on the next tick', { options: { a
   await ui.unmount()
 })
 
-test('narrowest, Clawd hides; the model line stays and the bars keep the room', async ($, on) => {
+test('narrowest, Clawd hides; the model line stays and the bars keep the room', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))

@@ -1,19 +1,17 @@
 import type { Elements, SessionContextUsage } from 'claude-code'
 
 import type { Usage, Window } from '../types'
-import type { BarStyle, Settings } from './settings'
-import { PICTURE_ROWS, PIXEL_HEIGHT, PIXEL_WIDTH, TEXT_COLUMNS } from './sprite'
+import type { BarStyle, Paint, Settings } from './settings'
+import type { Picture } from './picture'
+import { pill } from './pill'
+import { BOX_COLUMNS, BOX_ROWS, TEXT_COLUMNS } from './sprite'
 import type { TextFrame } from './sprite'
 
-// The picture's box is wider than Clawd: kitty fits a picture whole with
-// square pixels, so in a box this wide its height runs out first, on fonts
-// with cells up to 1:2.8, and he is as tall as in text whatever the font. An
-// even width centres the 14-cell text Clawd on the picture's middle.
-const PICTURE_COLUMNS = 20
 const PERCENT = 4 // " 99%": a window used up reads 99%, so the percentage keeps its width
 const RESET = 12 // " 06d-23h-59m" or " 04h-59m-59s": one width for every row
 const SHORT_RESET = 8 // " 06d-23h" or " 04h-59m": the two biggest units, where the band is narrow
 const MIN_BAR = 4
+const MAX_BAR = 255 // the most cells an Image takes; the bars in text keep to it, so both forms end at one place
 const EDGE = 1 // the cell kept free at the band's right edge
 const FRAME = 2 // a blank cell either side of the bars
 const WEEK = 7 // days in the weekly bar
@@ -119,9 +117,9 @@ export type Row = {
   // A countdown that is running reads bold; one with nothing to count, dim.
   isLive: boolean
   // The fill's own colour, at any level.
-  own: string
+  own: Paint
   // Paints the fill and the countdown in place of `own` (a cold cache).
-  color?: string
+  color?: Paint
   segments?: number
   // How many of the last segments warn.
   warned?: number
@@ -150,11 +148,13 @@ export type Reading = {
 // The rows the person asked for, top to bottom: the week, the five hours, and
 // the context window with the prompt cache's countdown.
 export const rowsOf = ({ usage, context, cacheAt, now }: Reading, settings: Settings): Row[] => {
-  const windowRow = (label: string, window: Window | null | undefined, own: string, withDays = false): Row => ({
+  const windowRow = (label: string, window: Window | null | undefined, own: Paint, withDays = false): Row => ({
     label,
     percent: window?.percentUsed,
     own,
-    timer: countdown(window?.resetsAt, now, withDays),
+    // At 0% with nothing to count to, the window has run out, or has not begun: the
+    // next request opens it. Dashes are for a window nothing is known of.
+    timer: window?.percentUsed === 0 && !window.resetsAt ? 'reset' : countdown(window?.resetsAt, now, withDays),
     isLive: !!window?.resetsAt,
     // The weekly bar is cut into its seven days.
     segments: withDays ? WEEK : 1,
@@ -180,12 +180,18 @@ export const rowsOf = ({ usage, context, cacheAt, now }: Reading, settings: Sett
 
 // Clawd as the band may draw him: in text always, and as a picture where the
 // terminal draws one. The band picks the form that fits its width.
-export type Clawd = { text: TextFrame; picture: { rgba: string; alt: string } | null }
+export type Clawd = { text: TextFrame; picture: { source: Picture; alt: string } | null }
+
+// One clear pixel in one cell: the picture the band is asked through whether
+// the terminal draws pictures. A terminal that draws none shows its alt, a space.
+export const PROBE: Picture = { rgba: 'AAAAAA==', width: 1, height: 1 }
 
 // All the band draws from.
 export type View = {
   // The width the band may fill.
   columns: number
+  // Whether the terminal draws pictures; null where none is wanted, and so none is asked for.
+  pictures: boolean | null
   // Null where the person turned Clawd off.
   clawd: Clawd | null
   // Null where the person turned the model line off.
@@ -206,17 +212,20 @@ export type Fit = {
   barWidth: number
 }
 
+// What follows the model's name under Clawd: a middle dot, then the effort.
+const effortText = (effort: string | null): string => (effort ? ` · ${effort}` : '')
+
 // Where the band is narrow, what gives way, in order: the countdown loses its
 // smallest unit, then goes; then Clawd turns to text, then hides. A bar keeps
 // MIN_BAR cells. Clawd's column is the picture's width while that fits, so the
 // bars stay put when the picture and the text swap. The bars take every cell
 // left, with one cell either side of Clawd.
 export const fit = (view: View): Fit | null => {
-  const caption = view.model ? (view.model.effort ? `${view.model.name} ${view.model.effort}` : view.model.name) : ''
+  const caption = view.model ? view.model.name + effortText(view.model.effort) : ''
   const label = Math.max(0, ...view.rows.map(row => row.label.length)) + 1 // "7d " or "200k "
   const forms: [Fit['form'], number][] = view.clawd
     ? [
-        [view.clawd.picture ? 'picture' : 'text', PICTURE_COLUMNS],
+        [view.clawd.picture ? 'picture' : 'text', BOX_COLUMNS],
         ['text', TEXT_COLUMNS],
         [null, 0],
       ]
@@ -226,7 +235,7 @@ export const fit = (view: View): Fit | null => {
     const side = left > 0 ? 1 : 0
     const room = view.columns - side - left - side - label - FRAME - PERCENT - EDGE
     const reset = [RESET, SHORT_RESET].find(reset => room - reset >= MIN_BAR) ?? 0
-    const barWidth = Math.max(MIN_BAR, room - reset)
+    const barWidth = Math.min(MAX_BAR, Math.max(MIN_BAR, room - reset))
     const at: Fit = { form, before: side, left, gap: side, label, reset, barWidth }
     return { at, room }
   })
@@ -239,28 +248,48 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
   if (!fitted) return <Box />
   const { form, before, left, gap, label, reset, barWidth } = fitted
 
+  const isPicture = view.pictures === true && settings.barStyle.isPicture === true
+
   const bar = (row: Row) => {
     const fill = row.percent ?? 0
     const paint = row.color ?? row.own
+    const percent = row.percent == null ? '--' : `${Math.min(99, Math.round(fill))}%`
     return (
       <Box flexDirection="row">
         <Text dimColor>{row.label.padEnd(label)}</Text>
         <Text> </Text>
-        {barRuns(barWidth, fill, settings.barStyle, row.segments, row.warned).map(run => (
-          <Text
-            color={run.part === 'filled' ? paint : run.warn ? settings.warning : settings.empty}
-            backgroundColor={run.behind === 'warn' ? settings.warning : run.behind === 'empty' ? settings.empty : undefined}
-          >
-            {run.text}
-          </Text>
-        ))}
+        {isPicture ? (
+          <Image
+            key={`bar-${row.label}`}
+            source={pill({
+              columns: barWidth,
+              ratio: settings.cellRatio,
+              percent: fill,
+              segments: row.segments ?? 1,
+              warned: row.warned ?? 0,
+              fill: paint.rgba,
+              track: settings.empty.rgba,
+              warn: settings.warning.rgba,
+            })}
+            columns={barWidth}
+            rows={1}
+            alt={`${row.label} ${percent}`}
+          />
+        ) : (
+          barRuns(barWidth, fill, settings.barStyle, row.segments, row.warned).map(run => (
+            <Text
+              color={(run.part === 'filled' ? paint : run.warn ? settings.warning : settings.empty).text}
+              backgroundColor={(run.behind === 'warn' ? settings.warning : run.behind === 'empty' ? settings.empty : undefined)?.text}
+            >
+              {run.text}
+            </Text>
+          ))
+        )}
         <Text> </Text>
-        <Text dimColor={row.percent == null}>
-          {row.percent == null ? '  --' : ` ${String(Math.min(99, Math.round(fill))).padStart(2)}%`}
-        </Text>
+        <Text dimColor={row.percent == null}>{percent.padStart(PERCENT)}</Text>
         {reset > 0 ? <Text> </Text> : null}
         {reset > 0 ? (
-          <Text bold={row.isLive || !!row.color} color={row.color} dimColor={!row.isLive && !row.color}>
+          <Text bold={row.isLive || !!row.color} color={row.color?.text} dimColor={!row.isLive && !row.color}>
             {row.timer.slice(0, reset - 1).padStart(reset - 1)}
           </Text>
         ) : null}
@@ -283,9 +312,9 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
     ) : form === 'picture' && view.clawd?.picture ? (
       <Image
         key="clawd"
-        source={{ rgba: view.clawd.picture.rgba, width: PIXEL_WIDTH, height: PIXEL_HEIGHT }}
-        columns={PICTURE_COLUMNS}
-        rows={PICTURE_ROWS}
+        source={view.clawd.picture.source}
+        columns={BOX_COLUMNS}
+        rows={BOX_ROWS}
         alt={view.clawd.picture.alt}
       />
     ) : null
@@ -293,9 +322,11 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
   return (
     // An empty row on top keeps the band clear of the line above it.
     <Box key="band" flexDirection="column">
-      <Text> </Text>
-      {/* The bars hang from the bottom: beside Clawd the last row sits on the model line under him. */}
-      <Box flexDirection="row" alignItems="flex-end">
+      {view.pictures === null ? <Text> </Text> : <Image key="probe" source={PROBE} columns={1} rows={1} alt=" " />}
+      {/* Three bars drawn as pictures are as tall as Clawd and stand level with him, the model
+          line under him. Bars in text, a blank row between each two, are taller and hang from
+          the bottom: the last one sits beside the model line. */}
+      <Box key="beside" flexDirection="row" alignItems={isPicture ? 'flex-start' : 'flex-end'}>
       {left > 0 ? (
         <Box key="clawd-column" flexDirection="column" width={left} marginLeft={before} alignItems="center">
           {clawd ? (
@@ -304,7 +335,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
             <Box
               key="clawd-place"
               alignSelf="flex-start"
-              marginLeft={Math.floor((left - (form === 'text' ? TEXT_COLUMNS : PICTURE_COLUMNS)) / 2)}
+              marginLeft={Math.floor((left - (form === 'text' ? TEXT_COLUMNS : BOX_COLUMNS)) / 2)}
             >
               {clawd}
             </Box>
@@ -312,15 +343,15 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
           {view.model ? (
             <Box key="model" flexDirection="row">
               <Text bold>{view.model.name}</Text>
-              {view.model.effort ? <Text dimColor> {view.model.effort}</Text> : null}
+              {view.model.effort ? <Text dimColor>{effortText(view.model.effort)}</Text> : null}
             </Box>
           ) : null}
         </Box>
       ) : null}
-      {/* Each bar's blank cells and a blank row between each two part it from the next, as a
-          frame in the background's colour would; the round ends need full-height cells. */}
+      {/* A bar in text fills its cells, round ends and all, so a blank row parts each two; a
+          picture leaves air of its own. */}
       <Box key="bars" flexDirection="column" marginLeft={gap} marginRight={EDGE}>
-        {view.rows.flatMap((row, at) => (at === 0 ? [bar(row)] : [<Text> </Text>, bar(row)]))}
+        {view.rows.flatMap((row, at) => (at === 0 || isPicture ? [bar(row)] : [<Text> </Text>, bar(row)]))}
       </Box>
       </Box>
     </Box>

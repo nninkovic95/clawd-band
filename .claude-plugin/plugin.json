@@ -1,6 +1,6 @@
 {
   "name": "clawd-band",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "A band above the prompt: an animated Clawd sprite, five-hour and weekly usage bars with a countdown to each window's reset, and a context-window bar with a countdown until the prompt cache goes cold",
   "author": { "name": "SleepNoMore", "url": "https://github.com/nninkovic95" },
   "homepage": "https://github.com/nninkovic95/clawd-band",
@@ -50,9 +50,15 @@
     "bar_style": {
       "type": "string",
       "title": "Bar style",
-      "description": "blocks █░, circles ●○ (each fills by quarters), dots ⣿⣀, squares ■□ or line ━─. random picks one each time the mod loads.",
-      "options": ["blocks", "circles", "dots", "squares", "line", "random"],
-      "default": "blocks"
+      "description": "pill: each bar a picture where the terminal draws pictures, blocks elsewhere. In text: blocks █, circles ●○ (each fills by quarters), dots ⣿⣀, squares ■□ or line ━─. random picks one each time the mod loads.",
+      "options": ["pill", "blocks", "circles", "dots", "squares", "line", "random"],
+      "default": "pill"
+    },
+    "cell_ratio": {
+      "type": "string",
+      "title": "Cell shape",
+      "description": "How many times taller than wide one character cell of your terminal is (most fonts: 2.0 to 2.4). Pictures are drawn for this shape, so that Clawd and the pill bars keep theirs however the terminal places them.",
+      "default": "2.2"
     },
     "show_weekly": {
       "type": "boolean",

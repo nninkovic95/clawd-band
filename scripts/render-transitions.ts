@@ -288,7 +288,7 @@ const framesShown = (): Frames => {
     drawn,
     keyOf(pose, roll, n) {
       const key = `${pose}.${roll % SCENES[pose].variants.length}.${n % lengthOf(pose, roll)}`
-      drawn[key] ??= { art: artOf(picture(pose, roll, n)), text: text(pose, roll, n) }
+      drawn[key] ??= { art: artOf(picture(pose, roll, n).rgba), text: text(pose, roll, n) }
       return key
     },
   }

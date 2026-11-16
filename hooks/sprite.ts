@@ -1,15 +1,11 @@
 import type { Pose } from '../types'
+// Types alone from another file: the render scripts run this one in node as
+// it stands, which resolves no import written without its extension.
+import type { Picture, Rgb } from './picture'
 
-declare global {
-  // The runtime's base64 methods on byte arrays; the types this module is
-  // checked against stop a version of the language short of them.
-  interface Uint8Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
-    toBase64(): string
-  }
-  interface Uint8ArrayConstructor {
-    fromBase64(text: string): Uint8Array<ArrayBuffer>
-  }
-}
+export type { Rgb }
+
+export const toHex = (rgb: Rgb): string => `#${rgb.map(c => c.toString(16).padStart(2, '0')).join('')}`
 
 // Clawd as the CLI prints it at startup (▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝), drawn
 // as a picture: a quadrant is twice as tall as wide, so each logo pixel is one
@@ -26,17 +22,19 @@ export const SCALE = 5
 export const TEXT_COLUMNS = 14
 export const TEXT_ROWS = 3
 export const PICTURE_ROWS = TEXT_ROWS + 1
+// The picture's box of cells: as tall as the text Clawd, so that either form
+// stands level with three bars, and wider than his art, so that the art,
+// drawn with square pixels, is as tall as the box on fonts with cells up to
+// 1:3. An even width centres the 14-cell text Clawd on the picture's middle.
+export const BOX_COLUMNS = 16
+export const BOX_ROWS = TEXT_ROWS
 const TEXT_LEFT = 1 // the art column the first cell starts at: the arms end on a cell's edge
 export const PICTURE_WIDTH = TEXT_COLUMNS * 2
 export const PICTURE_HEIGHT = PICTURE_ROWS * 4
 export const PIXEL_WIDTH = PICTURE_WIDTH * SCALE
 export const PIXEL_HEIGHT = PICTURE_HEIGHT * SCALE
 
-export type Rgb = [number, number, number]
-
 export const CLAUDE_ORANGE: Rgb = [215, 119, 87]
-
-export const toHex = (rgb: Rgb): string => `#${rgb.map(c => c.toString(16).padStart(2, '0')).join('')}`
 
 const COLORS: Record<string, Rgb> = {
   '#': CLAUDE_ORANGE, // the body, replaced by the sprite_color option
@@ -774,8 +772,16 @@ const drawing = <T>(form: keyof Art, draw: (grid: Grid) => T): Draw<T> => {
   }
 }
 
-const toBase64 = (grid: Grid, colors: Record<string, Rgb>): string => {
-  const px = new Uint8Array(PIXEL_WIDTH * PIXEL_HEIGHT * 4)
+// Where the art starts on a canvas `width` pixels wide: his body, standing,
+// on the canvas's middle, as far as the art stays whole.
+const BODY_LEFT = (X + 1 - TEXT_LEFT) * SCALE
+const BODY_WIDTH = 16 * SCALE
+const artLeft = (width: number): number =>
+  Math.max(0, Math.min(width - PIXEL_WIDTH, Math.round((width - BODY_WIDTH) / 2) - BODY_LEFT))
+
+const toBase64 = (grid: Grid, colors: Record<string, Rgb>, width: number): string => {
+  const px = new Uint8Array(width * PIXEL_HEIGHT * 4)
+  const left = artLeft(width)
   // Each art pixel is a square of SCALE by SCALE picture pixels; the rows
   // under the art stay clear.
   for (let ay = 0; ay < PICTURE_HEIGHT; ay++) {
@@ -784,7 +790,7 @@ const toBase64 = (grid: Grid, colors: Record<string, Rgb>): string => {
       if (!rgb) continue
       for (let dy = 0; dy < SCALE; dy++) {
         for (let dx = 0; dx < SCALE; dx++) {
-          px.set([...rgb, 255], ((ay * SCALE + dy) * PIXEL_WIDTH + ax * SCALE + dx) * 4)
+          px.set([...rgb, 255], ((ay * SCALE + dy) * width + left + ax * SCALE + dx) * 4)
         }
       }
     }
@@ -792,10 +798,12 @@ const toBase64 = (grid: Grid, colors: Record<string, Rgb>): string => {
   return px.toBase64()
 }
 
-// Clawd as pictures: each frame a whole RGBA image in base64.
-export const picturesIn = (body: Rgb): Draw<string> => {
+// Clawd as pictures: each frame a whole RGBA image, PIXEL_HEIGHT high and
+// `width` wide, which is the art's own width or more.
+export const picturesIn = (body: Rgb, width = PIXEL_WIDTH): Draw<Picture> => {
   const colors = { ...COLORS, '#': body }
-  return drawing('picture', grid => toBase64(grid, colors))
+  const canvas = Math.max(width, PIXEL_WIDTH)
+  return drawing('picture', grid => ({ rgba: toBase64(grid, colors, canvas), width: canvas, height: PIXEL_HEIGHT }))
 }
 
 // Clawd as text, for where the terminal draws no picture. A cell of text holds

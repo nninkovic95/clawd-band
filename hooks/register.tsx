@@ -1,14 +1,18 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, Timer, TurnCompleteReason } from 'claude-code'
+import type { EngineInterface, Register, SessionContextUsage, Timer, TurnCompleteReason } from 'claude-code'
 
 import type { Model, Pose } from '../types'
-import { band, fit, rowsOf } from './band'
+import { band, fit, PROBE, rowsOf } from './band'
 import type { Clawd } from './band'
 import { play, RULES, start, view, want } from './pose'
 import type { Flow, Rules } from './pose'
+import { offerCommand, settingsPanel } from './panel'
+import { boxPixels } from './picture'
+import type { Picture } from './picture'
 import { settings } from './settings'
-import { picturesIn, PIXEL_HEIGHT, PIXEL_WIDTH, POSES, SCENES, textIn } from './sprite'
-import type { Scene, TextFrame } from './sprite'
+import type { Settings } from './settings'
+import { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, POSES, SCENES, textIn } from './sprite'
+import type { Draw, Scene, TextFrame } from './sprite'
 import { field, resetExpired, setUsage, syncUsage } from './usage'
 
 const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
@@ -87,9 +91,13 @@ async function refreshUsage($: EngineInterface) {
   await setUsage($, rateLimits, await $.clock.now())
 }
 
+// Clawd's pictures on a canvas the shape of his box of cells.
+const boxedPictures = ({ spriteRgb, cellRatio }: Settings): Draw<Picture> =>
+  picturesIn(spriteRgb, boxPixels(BOX_COLUMNS, BOX_ROWS, cellRatio, PIXEL_HEIGHT / BOX_ROWS).width)
+
 // Set by register from the person's options; a change there reloads the module.
 let config = settings({})
-let drawPicture = picturesIn(config.spriteRgb)
+let drawPicture = boxedPictures(config)
 let drawText = textIn(config.spriteColor)
 
 // The pose rules, with the person's say on motion.
@@ -118,13 +126,16 @@ const live: {
   isCompacting: boolean
   isWorking: boolean
   bandId: string | null
-  isText: boolean
+  // Whether the terminal draws pictures, as far as the last probes say.
+  pictures: boolean
   // The form the band last drew Clawd in: it picks what fits its width.
   form: 'picture' | 'text' | null
   drawn: TextFrame | null
   // The picture last sent to the band, so an unchanged frame is not sent again.
-  sent: string | null
+  sent: Picture | null
   refusals: number
+  // The context's estimated tokens while no reply has measured it, asked for once.
+  estimate: Promise<number | null> | null
   sessionId: string | null
   isModelLoaded: boolean
   timer: Timer | null
@@ -142,11 +153,12 @@ const live: {
   isCompacting: false,
   isWorking: false,
   bandId: null,
-  isText: false,
+  pictures: true,
   form: null,
   drawn: null,
   sent: null,
   refusals: 0,
+  estimate: null,
   sessionId: null,
   isModelLoaded: false,
   timer: null,
@@ -156,8 +168,8 @@ const live: {
 
 const shown = (): Scene => shownPose(live.pose, live.isWorking)
 
-// Clawd as text: the person's choice, or a terminal that refused the picture.
-const inText = (): boolean => config.sprite === 'text' || live.isText
+// A picture is wanted wherever the terminal draws one: Clawd's, or the bars'.
+const wantsPictures = (): boolean => config.sprite === 'picture' || config.barStyle.isPicture === true
 
 // Copies what the flow shows into the values the band draws from, and answers
 // whether any of them changed.
@@ -197,29 +209,60 @@ async function handBack($: EngineInterface, claim: number, next: Pose) {
 const NO_PICTURE = 'the Image draws its alt here'
 const REFUSALS = 3 // in a row: the first swaps can come before the terminal has answered
 
+// Asks the terminal whether it draws pictures, by a swap of the band's
+// one-cell picture: once a second, and each tick while refusals are being
+// counted. A few refusals in a row and the band draws in text; one swap taken
+// and it draws pictures again, so a terminal that comes back from where it
+// could draw none gets its pictures back.
+async function probe($: EngineInterface, isNewSecond: boolean) {
+  if (!live.bandId || !wantsPictures()) return
+  const isCounting = live.pictures && live.refusals > 0
+  if (!isNewSecond && !isCounting) return
+  const answer = await $.ui.blit({ requestId: live.bandId, key: 'probe', source: PROBE }).catch(() => null)
+  // A band taken down between draws refuses too, which says nothing of pictures.
+  if (answer === null || (answer.deny !== undefined && !answer.deny.includes(NO_PICTURE))) return
+  live.refusals = answer.deny === undefined ? 0 : live.refusals + 1
+  const pictures = live.refusals < REFUSALS
+  if (pictures === live.pictures) return
+  live.pictures = pictures
+  // The band is drawn anew in the other form: no picture of the old one counts as sent.
+  live.sent = null
+  $.ui.invalidate('ui.render')
+}
+
 // The next frame of the pose: a picture swapped in place, or, where Clawd is
 // text, a redraw once the text on screen is no longer the frame to show.
-// After a few refusals in a row the band gives up on the picture and draws
-// the text Clawd until the module loads again.
 async function showFrame($: EngineInterface) {
-  if (!live.bandId || config.sprite === 'off') return
+  if (!live.bandId) return
   if (live.form === 'text') {
     if (drawText(shown(), live.roll, live.frame) !== live.drawn) $.ui.invalidate('ui.render')
     return
   }
   if (live.form !== 'picture') return
-  const rgba = drawPicture(shown(), live.roll, live.frame)
-  if (rgba === live.sent) return
-  const source = { rgba, width: PIXEL_WIDTH, height: PIXEL_HEIGHT }
+  const source = drawPicture(shown(), live.roll, live.frame)
+  if (source === live.sent) return
   // A band taken down between draws refuses too; the next render places it again.
   const answer = await $.ui.blit({ requestId: live.bandId, key: 'clawd', source }).catch(() => null)
   // Only a picture the band took counts as sent: one it refused goes again.
-  live.sent = answer !== null && answer.deny === undefined ? rgba : null
-  if (answer?.deny === undefined) live.refusals = 0
-  else if (answer.deny.includes(NO_PICTURE)) live.refusals += 1
-  if (live.refusals < REFUSALS) return
-  live.isText = true
-  $.ui.invalidate('ui.render')
+  live.sent = answer !== null && answer.deny === undefined ? source : null
+}
+
+// The context window's fill. Before a session's first reply the engine has no
+// figure for it, so the band shows the estimate /context would make, which
+// costs no request.
+async function contextOf($: EngineInterface): Promise<SessionContextUsage | undefined> {
+  const context = (await $.session.usage().catch(() => null))?.context
+  if (!context || context.percent !== undefined) {
+    live.estimate = null
+    return context
+  }
+  live.estimate ??= $.session.usage({ breakdown: 'summary' }).then(
+    usage => usage.context.breakdown?.totalTokens ?? null,
+    () => null,
+  )
+  const tokens = await live.estimate
+  if (tokens === null || context.window <= 0) return context
+  return { ...context, percent: Math.min(100, Math.round((tokens / context.window) * 100)) }
 }
 
 async function loadModel($: EngineInterface) {
@@ -267,11 +310,13 @@ async function tick($: EngineInterface) {
   if (live.main === 'compacting' && !live.isWorking) await setPose($, 'idle')
   const now = await $.clock.now()
   const second = Math.floor(now / 1000)
-  if (second !== live.second) {
+  const isNewSecond = second !== live.second
+  if (isNewSecond) {
     live.second = second
     void everySecond($, now).catch(() => undefined)
     $.ui.invalidate('ui.render')
   }
+  await probe($, isNewSecond)
   await showFrame($)
 }
 
@@ -290,8 +335,11 @@ const seedPose = (pose: Pose) => {
 // first hook to run starts the timer, and any later one restarts a stalled one.
 function ensureStarted($: EngineInterface) {
   if (live.timer && Date.now() - live.tickedAt < STALLED_MS) return
-  // A module loaded again mid-session takes up the pose the last one left.
-  if (!live.timer) void read($, poseAtom).then(seedPose, () => undefined)
+  if (!live.timer) {
+    // A module loaded again mid-session takes up the pose the last one left.
+    void read($, poseAtom).then(seedPose, () => undefined)
+    void offerCommand($).catch(() => undefined)
+  }
   live.timer?.cancel()
   live.tickedAt = Date.now()
   live.timer = $.clock.every(FRAME_MS, () => void tick($).catch(() => undefined))
@@ -301,9 +349,10 @@ function ensureStarted($: EngineInterface) {
 
 export const register: Register = (on, options) => {
   config = settings(options)
-  drawPicture = picturesIn(config.spriteRgb)
+  drawPicture = boxedPictures(config)
   drawText = textIn(config.spriteColor)
   rules = rulesOf()
+  settingsPanel(on)
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -431,12 +480,13 @@ export const register: Register = (on, options) => {
     const usage = resetExpired(await read($, usageAtom), now)
     const model = await read($, modelAtom)
     const cacheAt = await read($, cacheAtom)
-    const context = (await $.session.usage().catch(() => null))?.context
+    const context = await contextOf($)
 
     const current = shown()
-    // No picture where the terminal draws none.
+    const pictures = wantsPictures() ? live.pictures : null
     const text = drawText(current, live.roll, live.frame)
-    const picture = inText() ? null : { rgba: drawPicture(current, live.roll, live.frame), alt: SCENES[current].alt }
+    // No picture where the terminal draws none, or the person asked for text.
+    const picture = pictures && config.sprite === 'picture' ? { source: drawPicture(current, live.roll, live.frame), alt: SCENES[current].alt } : null
     const clawd: Clawd | null = config.sprite === 'off' ? null : { text, picture }
     const name = model.name ? shortModel(model.name) : '--'
     const rows = rowsOf({ usage, context, cacheAt, now }, config)
@@ -444,6 +494,7 @@ export const register: Register = (on, options) => {
     if (!clawd && !config.showModel && rows.length === 0) return next(e)
     const view = {
       columns: e.props.bodyColumns,
+      pictures,
       clawd,
       model: config.showModel ? { name, effort: model.effort } : null,
       rows,

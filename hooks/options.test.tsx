@@ -1,4 +1,4 @@
-import type { Hook, SessionContextUsage, SessionRateLimit } from 'claude-code'
+import type { Hook, SessionContextBreakdown, SessionContextUsage, SessionRateLimit } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { barRuns, rowsOf } from './band'
@@ -71,10 +71,10 @@ test('every style marks the days between them', async () => {
 })
 
 test('bar_style and sprite take one of their choices, or a random one', async () => {
-  expect(settings({}).barStyle).toBe(BAR_STYLES.blocks)
+  expect(settings({}).barStyle).toBe(BAR_STYLES.pill)
   expect(settings({ bar_style: 'circles' }).barStyle).toBe(BAR_STYLES.circles)
-  expect(settings({ bar_style: 'stripes' }).barStyle).toBe(BAR_STYLES.blocks)
-  expect(settings({ bar_style: 'random' }, () => 0).barStyle).toBe(BAR_STYLES.blocks)
+  expect(settings({ bar_style: 'stripes' }).barStyle).toBe(BAR_STYLES.pill)
+  expect(settings({ bar_style: 'random' }, () => 0).barStyle).toBe(BAR_STYLES.pill)
   expect(settings({ bar_style: 'random' }, () => 0.99).barStyle).toBe(BAR_STYLES.line)
   expect(settings({}).sprite).toBe('picture')
   expect(settings({ sprite: 'off' }).sprite).toBe('off')
@@ -89,7 +89,8 @@ test('the rows are the ones left on, top to bottom', async () => {
   expect(labels({})).toEqual(['7d', '5h', '200k'])
   expect(labels({ show_weekly: false })).toEqual(['5h', '200k'])
   expect(labels({ show_five_hour: false, show_context: false })).toEqual(['7d'])
-  const [weekly, fiveHour, context] = rowsOf(READING, settings({}))
+  // A row's colour as a Text takes it; a picture's form of it has its own tests.
+  const [weekly, fiveHour, context] = rowsOf(READING, settings({})).map(row => ({ ...row, own: row.own.text }))
   expect(weekly).toEqual({ label: '7d', percent: 31, own: 'autoAccept', timer: '02d-09h-00m', isLive: true, segments: 7 })
   expect(fiveHour?.timer).toBe('03h-00m-00s')
   expect(context).toEqual({
@@ -100,6 +101,38 @@ test('the rows are the ones left on, top to bottom', async () => {
     isLive: false,
     color: undefined,
   })
+})
+
+test('a window whose time is up reads 0% and "reset", not a row of dashes', async () => {
+  // As the band is handed it: the five hours ran out, so that window is at 0% with nothing to count to.
+  const usage = { fiveHour: { percentUsed: 0, resetsAt: null }, sevenDay: READING.usage.sevenDay }
+  const [weekly, fiveHour] = rowsOf({ ...READING, usage }, settings({}))
+  expect([fiveHour?.percent, fiveHour?.timer, fiveHour?.isLive]).toEqual([0, 'reset', false])
+  expect(weekly?.timer).toBe('02d-09h-00m')
+  // A window nothing is known of keeps its dashes.
+  const [, unknown] = rowsOf({ ...READING, usage: { fiveHour: null, sevenDay: null } }, settings({}))
+  expect([unknown?.percent, unknown?.timer]).toEqual([undefined, '--h---m---s'])
+})
+
+test('before its first reply a session shows the context the engine estimates', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  // No reply has measured the window yet, so the plain figures hold no percentage; the
+  // estimate /context makes is 24000 tokens of 200000.
+  let estimates = 0
+  on('session.usage', ($, e) => {
+    if (!e.breakdown) return usageOf()
+    estimates += 1
+    const breakdown = { totalTokens: 24_000 } as SessionContextBreakdown
+    return usageOf([], { window: 200_000, breakdown })
+  })
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: ' 12%' })).toBeDefined()
+  // Asked for once, however often the band is drawn.
+  expect(estimates).toBe(1)
+  await ui.unmount()
 })
 
 test('bar_style draws the bars in that style', { options: { bar_style: 'circles' } }, async ($, on) => {
@@ -120,7 +153,7 @@ test('sprite text draws the text Clawd from the start', { options: { sprite: 'te
   await ui.unmount()
 })
 
-test('sprite off leaves the model line and the bars', { options: { sprite: 'off' } }, async ($, on) => {
+test('sprite off leaves the model line and the bars', { options: { sprite: 'off', bar_style: 'blocks' } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   let swaps = 0
   on('ui.blit', () => {
@@ -135,6 +168,24 @@ test('sprite off leaves the model line and the bars', { options: { sprite: 'off'
   expect(await ui.find({ type: 'Text', text: '▝▜█████▛▘' })).toBe(undefined)
   expect(await ui.find({ key: 'model' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
+  await ui.unmount()
+})
+
+// The text a drawn node shows, its children's one after another.
+type Shown = { children?: (Shown | string)[] }
+const textOf = (node: Shown | string): string =>
+  typeof node === 'string' ? node : (node.children ?? []).map(textOf).join('')
+
+test('under Clawd a middle dot parts the model from its effort', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  mock.store(on, { model: { name: 'claude-opus-5-5', effort: 'high' } })
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1)
+  expect(textOf((await ui.find({ key: 'model' })) as Shown)).toBe('Opus 5.5 · high')
   await ui.unmount()
 })
 

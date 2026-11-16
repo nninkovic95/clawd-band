@@ -19,7 +19,7 @@ const BAR = ['rgb(78,186,101)', 'rgb(255,193,7)', 'rgb(255,107,128)']
 const TRACK = 'rgb(58,58,64)'
 
 // The plain body's art pixels, cropped to Clawd.
-const px = Buffer.from(picturesIn(CLAUDE_ORANGE)('plain', 0, 0), 'base64')
+const px = Buffer.from(picturesIn(CLAUDE_ORANGE)('plain', 0, 0).rgba, 'base64')
 const art: { x: number; y: number; fill: string }[] = []
 for (let y = 0; y < PICTURE_HEIGHT; y++) {
   for (let x = 0; x < PICTURE_WIDTH; x++) {

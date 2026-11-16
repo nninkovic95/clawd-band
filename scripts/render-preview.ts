@@ -39,7 +39,7 @@ const shown: Shown[] = Object.entries(POSES as Record<string, { alt: string; var
       alt: art.alt,
       notes: [art.once ? 'plays once' : 'loops', ...(art.outsideTurn ? ['shows outside a turn'] : [])],
       frames: Array.from({ length: lengthOf(pose, roll) }, (_, n) => ({
-        art: artOf(picture(pose, roll, n)),
+        art: artOf(picture(pose, roll, n).rgba),
         text: text(pose, roll, n),
       })),
     })),
