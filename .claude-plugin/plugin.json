@@ -78,6 +78,24 @@
       "description": "The context window and the countdown until the prompt cache goes cold.",
       "default": true
     },
+    "context_detail": {
+      "type": "boolean",
+      "title": "Context bar by category",
+      "description": "The context bar as a pill for each /context category, with the auto-compaction mark and the Dumb Memory outline. Off, it is one fill in one colour.",
+      "default": true
+    },
+    "show_dumb_memory": {
+      "type": "boolean",
+      "title": "Show Dumb Memory",
+      "description": "An outline on the context bar from where answers are expected to get worse (what the session loaded plus two fifths of the room left, a rule of thumb) to the bar's end; it turns red once the session is inside.",
+      "default": true
+    },
+    "show_autocompact": {
+      "type": "boolean",
+      "title": "Show where auto-compaction runs",
+      "description": "A short grey pill on the context bar at the point where Claude Code compacts the conversation by itself. There is none while auto-compaction is off.",
+      "default": true
+    },
     "bar_color_weekly": {
       "type": "string",
       "title": "Weekly bar colour",

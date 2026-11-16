@@ -14,6 +14,11 @@ export type Pill = {
   fill: Rgba
   track: Rgba
   warn: Rgba
+  // Dumb Memory: where it starts along the bar, 0 to 1, whether the session is in it, and
+  // its outline's colour short of it and inside it.
+  zone?: { from: number; isIn: boolean; rest: Rgba; inside: Rgba }
+  // Where auto-compaction runs along the bar, 0 to 1, and the colour of its mark.
+  mark?: { at: number; colour: Rgba }
 }
 
 const ROW = 28 // the pixels a row of cells is drawn at
@@ -34,6 +39,16 @@ const inPill = (x: number, y: number, from: number, to: number, height: number, 
   return Math.hypot(x - middle, y - radius) <= radius - inset
 }
 
+// Whether a point lies in the box from `from` to `to` across, drawn in by `inset` from the
+// row's top and bottom, its corners round: a pill where it is long enough to be one.
+const inSlab = (x: number, y: number, from: number, to: number, height: number, inset: number): boolean => {
+  if (to <= from) return false
+  const radius = Math.min(height / 2 - inset, (to - from) / 2)
+  const cx = Math.max(from + radius, Math.min(to - radius, x))
+  const cy = Math.max(inset + radius, Math.min(height - inset - radius, y))
+  return Math.hypot(x - cx, y - cy) <= radius
+}
+
 // What the bar shows at a point, null where it is clear. Its layers, the
 // undermost first: the whole bar in the empty part's colour, or the warning's
 // in the segments that warn, whose rim is the bar's edge; the fill, drawn in
@@ -48,12 +63,33 @@ const painter = (spec: Pill, { width, height }: Size) => {
   const warnFrom = (spec.segments - spec.warned) * segment
   // A fill shorter than it is high is still round: a pill is never less than a circle.
   const end = (width * Math.min(100, spec.percent)) / 100
+  // Dumb Memory's outline lies where the fill's clear ring would, from its start to the
+  // bar's own end, one line thick.
+  const zone = spec.zone
+  const zoneFrom = zone ? width * zone.from : 0
+  const zoneTo = width - air - line
+  // With the session in it, the outline takes its inside colour. The fill within it shows
+  // by turns with that colour, in slanting stripes two lines wide, so both can be told. What
+  // is left of its inside is that colour as solid as the empty part is.
+  const within = zone?.isIn ? zone.inside : null
+  const faint: Rgba | null = within ? [within[0], within[1], within[2], spec.track[3]] : null
+  const isStripe = (x: number, y: number) => Math.floor((x + y) / (2 * line)) % 2 === 1
+  // Auto-compaction's mark: a short pill of its own on its place, as tall as the fill, a
+  // clear ring round it, over whatever of the bar lies there.
+  const mark = spec.mark
+  const markFrom = mark ? width * mark.at - 2 * line : 0
+  const markTo = markFrom + 4 * line
   return (x: number, y: number): Rgba | null => {
     if (!inPill(x, y, 0, width, height, air)) return null
     const seam = Math.round(x / segment) * segment
     if (seam > 0 && seam < width && Math.abs(x - seam) < line / 2) return null
-    if (end > 0 && inPill(x, y, 0, end, height, air + 2 * line)) return spec.fill
+    if (mark && inSlab(x, y, markFrom, markTo, height, air + 2 * line)) return mark.colour
+    if (mark && inSlab(x, y, markFrom - line, markTo + line, height, air + line)) return null
+    const isInside = zone !== undefined && inSlab(x, y, zoneFrom + line, zoneTo - line, height, air + 2 * line)
+    if (zone && !isInside && inSlab(x, y, zoneFrom, zoneTo, height, air + line)) return within ?? zone.rest
+    if (end > 0 && inPill(x, y, 0, end, height, air + 2 * line)) return isInside && within && isStripe(x, y) ? within : spec.fill
     if (end > 0 && inPill(x, y, 0, end, height, air + line)) return null
+    if (isInside && faint) return faint
     return x >= warnFrom ? spec.warn : spec.track
   }
 }

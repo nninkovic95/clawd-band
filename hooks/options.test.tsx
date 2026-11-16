@@ -251,6 +251,11 @@ test('the motion options are on unless turned off', async () => {
   expect([off.animate, off.randomPoses, off.turnEndings]).toEqual([false, false, false])
 })
 
+test('the context bar shows its detail unless context_detail is turned off', async () => {
+  expect(settings({}).contextDetail).toBe(true)
+  expect(settings({ context_detail: false }).contextDetail).toBe(false)
+})
+
 test('animate off holds Clawd still', { options: { sprite: 'text', animate: false } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)

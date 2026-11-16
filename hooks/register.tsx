@@ -3,6 +3,7 @@ import type { EngineInterface, Register, SessionContextUsage, Timer, TurnComplet
 
 import type { Model, Pose } from '../types'
 import { band, fit, PROBE, rowsOf } from './band'
+import { compactTokens, estimatedTokens, loadedTokens, syncContext, wantContext } from './context'
 import type { Clawd } from './band'
 import { play, RULES, start, view, want } from './pose'
 import type { Flow, Rules } from './pose'
@@ -134,8 +135,6 @@ const live: {
   // The picture last sent to the band, so an unchanged frame is not sent again.
   sent: Picture | null
   refusals: number
-  // The context's estimated tokens while no reply has measured it, asked for once.
-  estimate: Promise<number | null> | null
   sessionId: string | null
   isModelLoaded: boolean
   timer: Timer | null
@@ -158,7 +157,6 @@ const live: {
   drawn: null,
   sent: null,
   refusals: 0,
-  estimate: null,
   sessionId: null,
   isModelLoaded: false,
   timer: null,
@@ -252,15 +250,8 @@ async function showFrame($: EngineInterface) {
 // costs no request.
 async function contextOf($: EngineInterface): Promise<SessionContextUsage | undefined> {
   const context = (await $.session.usage().catch(() => null))?.context
-  if (!context || context.percent !== undefined) {
-    live.estimate = null
-    return context
-  }
-  live.estimate ??= $.session.usage({ breakdown: 'summary' }).then(
-    usage => usage.context.breakdown?.totalTokens ?? null,
-    () => null,
-  )
-  const tokens = await live.estimate
+  if (!context || context.percent !== undefined) return context
+  const tokens = estimatedTokens()
   if (tokens === null || context.window <= 0) return context
   return { ...context, percent: Math.min(100, Math.round((tokens / context.window) * 100)) }
 }
@@ -290,6 +281,8 @@ async function everySecond($: EngineInterface, now: number) {
       () => undefined,
     )
   }
+  // Not waited for: the usage below has its own waits.
+  if (config.showContext) void syncContext($, now, id, config.contextDetail).catch(() => undefined)
   // The account is asked only for a row that shows.
   if (config.showWeekly || config.showFiveHour) await syncUsage($, now, id)
 }
@@ -433,7 +426,11 @@ export const register: Register = (on, options) => {
     ensureStarted($)
     // Only the conversation's own turn has an ending; `reason` is all that is read of it.
     // With the endings turned off, the turn's end is rest.
-    if (e.agentId === undefined) await setPose($, config.turnEndings ? ENDINGS[e.reason] : 'idle')
+    if (e.agentId === undefined) {
+      await setPose($, config.turnEndings ? ENDINGS[e.reason] : 'idle')
+      // The turn added to the conversation: its breakdown is read anew.
+      wantContext()
+    }
     await refreshUsage($).catch(() => undefined)
     return next(e)
   })
@@ -489,7 +486,9 @@ export const register: Register = (on, options) => {
     const picture = pictures && config.sprite === 'picture' ? { source: drawPicture(current, live.roll, live.frame), alt: SCENES[current].alt } : null
     const clawd: Clawd | null = config.sprite === 'off' ? null : { text, picture }
     const name = model.name ? shortModel(model.name) : '--'
-    const rows = rowsOf({ usage, context, cacheAt, now }, config)
+    const loaded = config.contextDetail ? loadedTokens() : null
+    const compactAt = config.contextDetail ? compactTokens() : null
+    const rows = rowsOf({ usage, context, cacheAt, now, loaded, compactAt }, config)
     // Everything turned off: the row above the prompt is not the mod's.
     if (!clawd && !config.showModel && rows.length === 0) return next(e)
     const view = {

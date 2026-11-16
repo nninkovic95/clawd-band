@@ -2,7 +2,7 @@ import type { Elements, SessionContextUsage } from 'claude-code'
 
 import type { Usage, Window } from '../types'
 import type { BarStyle, Paint, Settings } from './settings'
-import type { Picture } from './picture'
+import type { Picture, Rgba } from './picture'
 import { pill } from './pill'
 import { BOX_COLUMNS, BOX_ROWS, TEXT_COLUMNS } from './sprite'
 import type { TextFrame } from './sprite'
@@ -15,6 +15,9 @@ const MAX_BAR = 255 // the most cells an Image takes; the bars in text keep to i
 const EDGE = 1 // the cell kept free at the band's right edge
 const FRAME = 2 // a blank cell either side of the bars
 const WEEK = 7 // days in the weekly bar
+// Dumb Memory's outline while the session is short of it.
+const ZONE_REST: Rgba = [0, 0, 0, 255]
+const solid = ([red, green, blue]: Rgba): Rgba => [red, green, blue, 255]
 
 // The weekly window as `06d-18h-44m`, the five-hour one as `03h-33m-24s`: the
 // same width, so the two countdowns line up under each other. Both ends are
@@ -123,6 +126,28 @@ export type Row = {
   segments?: number
   // How many of the last segments warn.
   warned?: number
+  // Where Dumb Memory starts along the bar, 0 to 1, and whether the session is in it.
+  zone?: Zone
+  // Where auto-compaction runs along the bar, 0 to 1.
+  mark?: number
+}
+
+export type Zone = { from: number; isIn: boolean }
+
+// Auto-compaction's place along the window; none where it is off, or would run at the
+// window's end or past it.
+const markOf = (context: SessionContextUsage | null | undefined, compactAt: number | null | undefined): number | null =>
+  context && context.window > 0 && compactAt != null && compactAt > 0 && compactAt < context.window ? compactAt / context.window : null
+
+// The stretch of the window where answers are expected to get worse: from
+// what the session loaded before its conversation plus a share of the room
+// left after it, to the window's end. The session is in it by its own tokens.
+const zoneOf = (context: SessionContextUsage | null | undefined, loaded: number | null | undefined, share: number): Zone | null => {
+  if (!context || context.window <= 0 || loaded == null) return null
+  // In whole tokens: the share is a percentage.
+  const start = (loaded * 100 + share * (context.window - loaded)) / 100
+  const tokens = context.tokens ?? ((context.percent ?? 0) * context.window) / 100
+  return { from: start / context.window, isIn: tokens > start }
 }
 
 const DAY_MS = 86_400_000
@@ -143,11 +168,15 @@ export type Reading = {
   context: SessionContextUsage | null | undefined
   cacheAt: number | null | undefined
   now: number
+  // The tokens the session held before its conversation, once known.
+  loaded?: number | null
+  // The tokens at which auto-compaction runs; null where it is off.
+  compactAt?: number | null
 }
 
 // The rows the person asked for, top to bottom: the week, the five hours, and
 // the context window with the prompt cache's countdown.
-export const rowsOf = ({ usage, context, cacheAt, now }: Reading, settings: Settings): Row[] => {
+export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt }: Reading, settings: Settings): Row[] => {
   const windowRow = (label: string, window: Window | null | undefined, own: Paint, withDays = false): Row => ({
     label,
     percent: window?.percentUsed,
@@ -166,7 +195,11 @@ export const rowsOf = ({ usage, context, cacheAt, now }: Reading, settings: Sett
   if (settings.showWeekly) rows.push(windowRow('7d', usage?.sevenDay, settings.weeklyColor, true))
   if (settings.showFiveHour) rows.push(windowRow('5h', usage?.fiveHour, settings.fiveHourColor))
   if (settings.showContext) {
+    const zone = settings.showDumbMemory ? zoneOf(context, loaded, settings.dumbZone) : null
+    const mark = settings.showAutocompact ? markOf(context, compactAt) : null
     rows.push({
+      ...(zone ? { zone } : {}),
+      ...(mark === null ? {} : { mark }),
       label: windowLabel(context?.window),
       percent: context?.percent,
       own: settings.contextColor,
@@ -270,6 +303,9 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
               fill: paint.rgba,
               track: settings.empty.rgba,
               warn: settings.warning.rgba,
+              zone: row.zone ? { ...row.zone, rest: ZONE_REST, inside: settings.warning.rgba } : undefined,
+              // In the empty part's own colour, solid: the grey /context gives the buffer.
+              mark: row.mark === undefined ? undefined : { at: row.mark, colour: solid(settings.empty.rgba) },
             })}
             columns={barWidth}
             rows={1}

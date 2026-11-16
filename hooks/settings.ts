@@ -54,6 +54,12 @@ export type Settings = {
   showWeekly: boolean
   showFiveHour: boolean
   showContext: boolean
+  // The context bar by category, with its marks; off, one fill in one colour.
+  contextDetail: boolean
+  // Dumb Memory's start: the share, in percent, of the room left after what the session loaded.
+  dumbZone: number
+  showDumbMemory: boolean
+  showAutocompact: boolean
   keepSpinner: boolean
   // Each bar's own colour, at any level.
   weeklyColor: Paint
@@ -149,6 +155,10 @@ export const settings = (options: PluginOptions, random: () => number = Math.ran
     showWeekly: options.show_weekly !== false,
     showFiveHour: options.show_five_hour !== false,
     showContext: options.show_context !== false,
+    contextDetail: options.context_detail !== false,
+    dumbZone: 40,
+    showDumbMemory: options.show_dumb_memory !== false,
+    showAutocompact: options.show_autocompact !== false,
     keepSpinner: options.keep_spinner === true,
     // Not `permission`: some themes draw it the same blue as `suggestion`.
     weeklyColor: paint(options.bar_color_weekly, 'autoAccept'),
