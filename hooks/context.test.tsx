@@ -96,7 +96,12 @@ test("the context row's line of detail says what the window holds and where its 
     return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100, compactAt: 667_000 }, settings(options)).at(-1)
   }
   const short = rowAt(320_807)
-  expect([short?.detail, short?.zoneDetail]).toEqual(['320.8k of 1M · Dumb Memory from 412.7k · auto-compact at 667k', undefined])
+  // Short of it Dumb Memory has a line of its own: where it starts and how far off that is.
+  expect([short?.detail, short?.zoneDetail, short?.zoneLine]).toEqual([
+    '320.8k of 1M · auto-compact at 667k',
+    undefined,
+    'Dumb Memory from 412.7k · 91.9k to go · answers get worse past it',
+  ])
   // 450000 is 37340 past the start at 412660.
   const inside = rowAt(450_000)
   expect([inside?.detail, inside?.zoneDetail]).toEqual([
@@ -260,9 +265,10 @@ test(
     await clock.advance(1000)
     const bar = (await imageOf(ui, 'bar-1m'))!
     // Six kinds, none a hundredth of the window: each is drawn 8 pixels long, the least a
-    // pill is, 4 clear pixels between two. They start where a fill would, 6 pixels in: 6 to
-    // 14, 18 to 26 and so on to 74, in /context's order and colours.
-    const middles = [10, 22, 34, 46, 58, 70].map(x => pixelOf(bar, x, 14))
+    // pill is, 4 clear pixels between two. They start 10 pixels in, a gap further than a
+    // fill does, so that the ring round the first keeps clear of the bar's round end: 10
+    // to 18, 22 to 30 and so on to 78, in /context's order and colours.
+    const middles = [14, 26, 38, 50, 62, 74].map(x => pixelOf(bar, x, 14))
     expect(middles).toEqual([
       [136, 136, 136, 255],
       [153, 153, 153, 255],
@@ -271,9 +277,12 @@ test(
       [215, 119, 87, 255],
       [255, 193, 7, 255],
     ])
-    expect([16, 28, 40, 52, 64].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0, 0, 0, 0])
+    expect([20, 32, 44, 56, 68].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0, 0, 0, 0])
+    // The bar's rim is whole round its end: at the first pill's upper left the bar's own
+    // colour, not the clear of a ring cut through it.
+    expect(pixelOf(bar, 6, 6)).toEqual(TRACK)
     // After the last, the bar's empty part: the conversation shows only in Dumb Memory.
-    expect(pixelOf(bar, 80, 14)).toEqual(TRACK)
+    expect(pixelOf(bar, 84, 14)).toEqual(TRACK)
     await ui.unmount()
   },
 )
@@ -287,10 +296,10 @@ test(
     const ui = await $.ui.mount(PILLS)
     await clock.advance(1000)
     const bar = (await imageOf(ui, 'bar-1m'))!
-    // The last little pill ends at 74; the fill runs from 78 to where it always ended.
-    expect(pixelOf(bar, 70, 14)).toEqual([255, 193, 7, 255])
-    expect(pixelOf(bar, 76, 14)[3]).toBe(0)
-    expect(pixelOf(bar, 82, 14)).toEqual([255, 107, 128, 255])
+    // The last little pill ends at 78; the fill runs from 82 to where it always ended.
+    expect(pixelOf(bar, 74, 14)).toEqual([255, 193, 7, 255])
+    expect(pixelOf(bar, 80, 14)[3]).toBe(0)
+    expect(pixelOf(bar, 86, 14)).toEqual([255, 107, 128, 255])
     await ui.unmount()
   },
 )
@@ -468,10 +477,28 @@ test("a row's line of detail is drawn hidden over the top row, in one hover grou
   expect([line?.props.display, line?.props.position, line?.props.top, line?.props.left]).toEqual(['none', 'absolute', 0, 1])
   expect(await hoverAt(ui, 'detail-1m')).toEqual({ scope: 'clawd-band-1m', display: 'flex' })
   // As wide as the band's 71 columns leave, so that it covers what the top row holds.
-  expect(line && textIn(line)).toBe('320.8k of 1M · Dumb Memory from 412.7k · auto-compact at 667k'.padEnd(69))
+  expect(line && textIn(line)).toBe('320.8k of 1M · auto-compact at 667k'.padEnd(69))
   expect(await hoverAt(ui, 'row-1m')).toEqual({ scope: 'clawd-band-1m' })
   // The session of this test is told nothing of its usage: those rows have no line.
   expect(await ui.find({ key: 'detail-7d' })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('the pointer on the zone itself, the framed part of the context bar, shows where Dumb Memory starts', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  sessionOf(on)
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  // A picture is one place for the pointer, so an empty box lies over the zone's cells of
+  // the bar: after the label's three cells and the dot, from the bar's cell 12 to its last.
+  const over = await ui.find({ key: 'zone-over' })
+  expect([over?.props.position, over?.props.top, over?.props.left, over?.props.width, over?.props.height]).toEqual(['absolute', 0, 16, 19, 1])
+  expect(await hoverAt(ui, 'zone-over')).toEqual({ scope: 'clawd-band-zone' })
+  // Its line is hidden over the top row, as a row's is.
+  const line = (await ui.find({ key: 'detail-zone' })) as Tree | undefined
+  expect([line?.props.display, line?.props.position, line?.props.top, line?.props.left]).toEqual(['none', 'absolute', 0, 1])
+  expect(await hoverAt(ui, 'detail-zone')).toEqual({ scope: 'clawd-band-zone', display: 'flex' })
+  expect(line && textIn(line)).toBe('Dumb Memory from 412.7k · 91.9k to go · answers get worse past it'.padEnd(69))
   await ui.unmount()
 })
 
@@ -488,6 +515,9 @@ test("Dumb Memory's own detail stands hidden either side of its name, which stay
   expect([before && textIn(before), after && textIn(after)]).toEqual(['37.3k inside · ', ' · /compact or /new'])
   // The name is in their group, and the cells before it are as wide as they were: nothing moves.
   expect(await hoverAt(ui, 'dumb-memory')).toEqual({ scope: 'clawd-band-zone' })
+  // The zone in the bar is in the same group: the pointer on it brings up the same words.
+  expect(await hoverAt(ui, 'zone-over')).toEqual({ scope: 'clawd-band-zone' })
+  expect(await ui.find({ key: 'detail-zone' })).toBe(undefined)
   const spacer = await ui.find({ key: 'dumb-memory-before' })
   expect([spacer?.props.width, spacer?.props.justifyContent]).toEqual([33, 'flex-end'])
   await ui.unmount()

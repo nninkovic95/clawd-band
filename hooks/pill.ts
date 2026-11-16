@@ -85,11 +85,13 @@ const painter = (spec: Pill, { width, height }: Size) => {
   const markTo = markFrom + 4 * line
   // The little pills stand where a fill would, one after another, a clear ring round each:
   // two rings side by side are the gap between two. One too short to see is drawn as long
-  // as the mark is. The fill is then a pill of its own after the last.
+  // as the mark is. The fill is then a pill of its own after the last. The first stands
+  // a gap in from where a fill starts: its corners are tighter than the bar's round end,
+  // and any nearer its ring would cut through the bar's rim.
   const inset = air + 2 * line
   const slabs: { from: number; to: number; colour: Rgba }[] = []
   for (const piece of spec.pieces ?? []) {
-    const from = (slabs.at(-1)?.to ?? inset - 2 * line) + 2 * line
+    const from = (slabs.at(-1)?.to ?? inset) + 2 * line
     slabs.push({ from, to: from + Math.max(4 * line, width * piece.share), colour: piece.colour })
   }
   const last = slabs.at(-1)

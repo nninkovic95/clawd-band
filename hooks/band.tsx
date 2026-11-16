@@ -177,6 +177,9 @@ export type Row = {
   // The same for Dumb Memory, once the session is in it: what stands either side of its
   // name for the pointer on it.
   zoneDetail?: { before: string; after: string }
+  // Dumb Memory in a line while the session is short of it: shown for the pointer on the
+  // zone itself.
+  zoneLine?: string
 }
 
 export type Zone = { from: number; isIn: boolean }
@@ -287,14 +290,17 @@ export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt, catego
     const mark = settings.showAutocompact ? markOf(context, compactAt) : null
     const tokens = context?.tokens
     const start = zone && context ? zone.from * context.window : 0
-    // Where Dumb Memory starts is said here only while its name is not on the band.
     const detail =
       context && tokens != null
         ? [
             `${tokensText(tokens)} of ${tokensText(context.window)}`,
-            ...(zone && !zone.isIn ? [`Dumb Memory from ${tokensText(start)}`] : []),
             ...(mark !== null && compactAt != null ? [`auto-compact at ${tokensText(compactAt)}`] : []),
           ].join(' · ')
+        : undefined
+    // Dumb Memory's own line while the session is short of it: its name is not on the band then.
+    const zoneLine =
+      zone && !zone.isIn && tokens != null
+        ? `Dumb Memory from ${tokensText(start)} · ${tokensText(start - tokens)} to go · answers get worse past it`
         : undefined
     const zoneDetail =
       zone?.isIn && tokens != null
@@ -307,6 +313,7 @@ export const rowsOf = ({ usage, context, cacheAt, now, loaded, compactAt, catego
       ...(mark === null ? {} : { mark }),
       ...(detail ? { detail } : {}),
       ...(zoneDetail ? { zoneDetail } : {}),
+      ...(zoneLine ? { zoneLine } : {}),
       label: windowLabel(context?.window),
       percent: context?.percent,
       own: settings.contextColor,
@@ -406,6 +413,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
     ? Math.min(before + left + gap + label + 1 + Math.floor(zone.from * barWidth), view.columns - EDGE - ZONE_WORDS.length)
     : 0
   const zoneDetail = view.rows.find(row => row.zoneDetail)?.zoneDetail
+  const zoneLine = view.rows.find(row => row.zoneLine)?.zoneLine
   const top =
     zone?.isIn && zoneAt >= 1 ? (
       <Box key="top" flexDirection="row">
@@ -514,6 +522,19 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
             {row.timer.slice(0, reset - 1).padStart(reset - 1)}
           </Text>
         ) : null}
+        {/* A picture is one place for the pointer, so an empty box lies over the zone's cells
+            of the bar, in the zone's group: the pointer there brings up the zone's words. */}
+        {row.zone ? (
+          <Box
+            key="zone-over"
+            position="absolute"
+            top={0}
+            left={label + 1 + Math.floor(row.zone.from * barWidth)}
+            width={barWidth - Math.floor(row.zone.from * barWidth)}
+            height={1}
+            hover={{ scope: ZONE_SCOPE }}
+          />
+        ) : null}
       </Box>
     )
   }
@@ -585,6 +606,11 @@ export function band(view: View, settings: Settings, { Box, Text, Image, Button 
           </Box>
         ) : null,
       )}
+      {zoneLine ? (
+        <Box key="detail-zone" position="absolute" top={0} left={1} display="none" hover={{ scope: ZONE_SCOPE, display: 'flex' }}>
+          <Text>{zoneLine.slice(0, detailWidth).padEnd(detailWidth)}</Text>
+        </Box>
+      ) : null}
       {/* The same for each half of a wide glyph, drawn after the rows' lines so that the
           half's covers its row's while the pointer is on it. */}
       {view.rows.flatMap(row =>
