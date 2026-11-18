@@ -3,11 +3,11 @@ import type { EngineInterface, Register, SessionContextUsage, Timer, TurnComplet
 
 import type { Model, Pose } from '../types'
 import { band, fit, PROBE, rowsOf } from './band'
-import { compactionEnds, compactionStarts, compactionTold, compactTokens, estimatedTokens, loadedTokens, syncContext, toldCompactionEnds, usedRows, wantContext, wantContextOnce } from './context'
+import { estimatedTokens, syncContext } from './context'
 import type { Clawd } from './band'
 import { play, RULES, start, view, want } from './pose'
 import type { Flow, Rules } from './pose'
-import { offerCommand, openZonePane, settingsPanel, zonePanel } from './panel'
+import { offerCommand, settingsPanel } from './panel'
 import { boxPixels } from './picture'
 import type { Picture } from './picture'
 import { settings } from './settings'
@@ -273,11 +273,7 @@ async function rowsAt($: EngineInterface, now: number) {
   const usage = resetExpired(await read($, usageAtom), now)
   const cacheAt = await read($, cacheAtom)
   const context = await contextOf($)
-  // Each of the context bar's extras is given what it needs only while it shows.
-  const loaded = config.showDumbMemory ? loadedTokens() : null
-  const compactAt = config.showAutocompact ? compactTokens() : null
-  const categories = config.showContextKinds ? usedRows() : null
-  return rowsOf({ usage, context, cacheAt, now, loaded, compactAt, categories }, config)
+  return rowsOf({ usage, context, cacheAt, now }, config)
 }
 
 // A new second redraws the band only where its rows read otherwise: a
@@ -306,9 +302,7 @@ async function everySecond($: EngineInterface, now: number) {
     )
   }
   // Not waited for: the usage below has its own waits.
-  // The breakdown is asked for only while one of the context bar's extras shows.
-  const isDetailed = config.showContextKinds || config.showDumbMemory || config.showAutocompact
-  if (config.showContext) void syncContext($, now, id, isDetailed).catch(() => undefined)
+  if (config.showContext) void syncContext($, id).catch(() => undefined)
   // The account is asked only for a row that shows.
   if (config.showWeekly || config.showFiveHour) await syncUsage($, now, id)
 }
@@ -327,7 +321,6 @@ async function tick($: EngineInterface) {
   if (POSES[live.wanted].once && live.flow.pose === 'idle') await setPose($, 'idle')
   // A compaction whose end the spinner did not tell: no turn is running, so it is over.
   if (live.main === 'compacting' && !live.isWorking) {
-    toldCompactionEnds()
     await setPose($, 'idle')
   }
   const now = await $.clock.now()
@@ -375,7 +368,6 @@ export const register: Register = (on, options) => {
   drawText = textIn(config.spriteColor)
   rules = rulesOf()
   settingsPanel(on)
-  zonePanel(on, config, shortModel)
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
@@ -458,28 +450,10 @@ export const register: Register = (on, options) => {
     // With the endings turned off, the turn's end is rest.
     if (e.agentId === undefined) {
       await setPose($, config.turnEndings ? ENDINGS[e.reason] : 'idle')
-      // The turn added to the conversation: its breakdown is read anew.
-      wantContext()
     }
     await refreshUsage($).catch(() => undefined)
     return next(e)
   })
-
-  // A compaction changes what the session holds: its breakdown is cleared as
-  // it starts and asked anew once it is done, never waited for here. Nothing
-  // of the compaction is read; it passes on as it came. One worked out ahead
-  // of time installs nothing, and changes nothing here; nor does a subagent's
-  // own, which leaves the conversation's context as it was.
-  on('session.compact', async ($, e, next) => {
-    ensureStarted($)
-    if (e.trigger === 'precompute' || e.agentId !== undefined) return next(e)
-    compactionStarts($)
-    try {
-      return await next(e)
-    } finally {
-      compactionEnds()
-    }
-  }).catch(($, e, next) => next(e))
 
   // The sprite is the only thing moving: the native spinner draws empty,
   // unless the person keeps it. Its message is the one sign of a compaction
@@ -489,10 +463,6 @@ export const register: Register = (on, options) => {
     const isCompacting = /compact/i.test(e.props.message ?? '')
     if (isCompacting !== live.isCompacting) {
       live.isCompacting = isCompacting
-      // Where a module above sends session.compact on past this one, the
-      // spinner's word is all that tells of a compaction and of its end.
-      if (isCompacting) compactionTold()
-      else toldCompactionEnds()
       const turnPose = async () => {
         if (isCompacting) await setPose($, 'compacting')
         // The turn goes on with a new reply to wait for; with no turn, Clawd rests.
@@ -542,14 +512,6 @@ export const register: Register = (on, options) => {
       clawd,
       model: config.showModel ? { name, effort: model.effort } : null,
       rows,
-      onZone: () => void openZonePane($).catch(() => undefined),
-      // The pane says everything whatever the switches: the breakdown is asked for once.
-      onContext: config.showContext
-        ? () => {
-            wantContextOnce()
-            void openZonePane($, 'Context').catch(() => undefined)
-          }
-        : undefined,
     }
     live.form = fit(view)?.form ?? null
     live.drawn = live.form === 'text' ? text : null

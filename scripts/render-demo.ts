@@ -1,6 +1,6 @@
 // Renders the README demo: a tour of every pose inside the whole band (Clawd,
 // the model line under him, the two usage bars with their reset countdowns,
-// the context bar with its little bars, its marks and its cache countdown),
+// the context bar with its cache countdown),
 // as one GIF at twice the cell size.
 //
 // Clawd and the bars are drawn through kitty's graphics protocol, which
@@ -58,8 +58,6 @@ const THEME = {
   context: 'rgb(215,119,87)', // claude
   empty: 'rgb(153,153,153)', // inactive
   cold: 'rgb(95,160,230)',
-  warning: 'rgb(255,107,128)', // error
-  outline: 'rgb(0,0,0)',
 }
 const EMPTY_SOLID = 0.4 // the empty part lets the terminal show through
 
@@ -110,26 +108,6 @@ const CACHE_LEFT = 59 * 60 + 58
 const WINDOW = '1m'
 const DAYS = 7
 
-// What the demo's session held before its conversation, in /context's order
-// and colours: the system prompt, the tools, MCP servers, custom agents,
-// memory files and skills.
-const TOKENS = 1_000_000
-const KINDS: [tokens: number, color: string][] = [
-  [3400, 'rgb(136,136,136)'],
-  [8000, 'rgb(153,153,153)'],
-  [539, 'rgb(22,163,74)'],
-  [1300, 'rgb(177,185,249)'],
-  [3700, 'rgb(215,119,87)'],
-  [4500, 'rgb(255,193,7)'],
-]
-const LOADED = KINDS.reduce((total, [tokens]) => total + tokens, 0)
-// Dumb Memory starts at what was loaded plus two fifths of the room left;
-// auto-compaction runs two thirds along.
-const ZONE_FROM = (LOADED + 0.4 * (TOKENS - LOADED)) / TOKENS
-const MARK_AT = 0.667
-const ZONE_WORDS = 'Dumb Memory'
-const isInZone = (percent: number): boolean => percent / 100 > ZONE_FROM
-
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 type Run = { text: string; color: string; bold?: boolean }
@@ -174,60 +152,6 @@ const pill = (col: number, row: number, percent: number, color: string, segments
   return out
 }
 
-// A box with round corners from `from` to `to` across a row, drawn in by
-// `inset` from the row's top and bottom: a pill where it is long enough.
-const slab = (x: number, y: number, from: number, to: number, inset: number, fill: string, solid = 1): string => {
-  const height = CELL_H - 2 * inset
-  return `<rect x="${x + from}" y="${y + inset}" width="${to - from}" height="${height}" rx="${Math.min(height / 2, (to - from) / 2)}" fill="${fill}"${solid < 1 ? ` fill-opacity="${solid}"` : ''}/>`
-}
-
-// The context bar as hooks/pill.ts draws it: a little bar for each kind of
-// memory the session loaded, 6 to 14 pixels by what it holds, then the
-// conversation's fill, never under 16; Dumb Memory's frame, black until the
-// session is inside it and the warning colour after, the fill striped black
-// within it; and the grey pill where auto-compaction runs. `own` is the
-// colour of a bar that has one of its own at any level: a cold cache's.
-const contextPill = (col: number, row: number, percent: number, own: string | null): string => {
-  const x = col * CELL_W
-  const y = row * CELL_H
-  const width = BAR * CELL_W
-  const line = Math.max(1, Math.round(CELL_H / 12))
-  const air = line
-  const inset = air + 2 * line
-  const isIn = isInZone(percent)
-  const zoneFrom = width * ZONE_FROM
-  const zoneTo = width - air - line
-  let out = capsule(x, y, 0, width, line, THEME.empty, EMPTY_SOLID)
-  if (isIn) {
-    out += slab(x, y, zoneFrom + line, zoneTo - line, inset, THEME.background) + slab(x, y, zoneFrom + line, zoneTo - line, inset, THEME.warning, EMPTY_SOLID)
-  }
-  const largest = Math.max(...KINDS.map(([tokens]) => tokens))
-  let at = inset
-  for (const [tokens, color] of KINDS) {
-    const from = at + 2 * line
-    const to = from + Math.round(Math.max((width * tokens) / TOKENS, 3 * line + (4 * line * tokens) / largest))
-    out += slab(x, y, from - line, to + line, inset - line, THEME.background) + slab(x, y, from, to, inset, color)
-    at = to
-  }
-  const fillFrom = at + 2 * line
-  const fillTo = Math.max(fillFrom + 8 * line, (width * percent) / 100 - inset)
-  const fill = slab(x, y, fillFrom, fillTo, inset, own ?? (isIn ? THEME.warning : THEME.context))
-  out += slab(x, y, fillFrom - line, fillTo + line, inset - line, THEME.background) + fill
-  if (isIn && fillTo > zoneFrom + line) {
-    // Slanting stripes two lines wide, over the part of the fill that lies within the frame.
-    const tile = 4 * line
-    out +=
-      `<defs><pattern id="stripes" width="${tile}" height="${tile}" patternUnits="userSpaceOnUse">` +
-      `<path d="M${tile / 2} 0H${tile}L0 ${tile}V${tile / 2}ZM${tile} ${tile / 2}V${tile}H${tile / 2}Z" fill="${THEME.outline}"/></pattern>` +
-      `<clipPath id="fill">${fill}</clipPath></defs>` +
-      `<rect x="${x + zoneFrom + line}" y="${y}" width="${fillTo - zoneFrom - line}" height="${CELL_H}" fill="url(#stripes)" clip-path="url(#fill)"/>`
-  }
-  const frame = CELL_H - 2 * (air + line) - line
-  out += `<rect x="${x + zoneFrom + line / 2}" y="${y + air + line + line / 2}" width="${zoneTo - zoneFrom - line}" height="${frame}" rx="${frame / 2}" fill="none" stroke="${isIn ? THEME.warning : THEME.outline}" stroke-width="${line}"/>`
-  const mark = width * MARK_AT
-  return out + slab(x, y, mark - 3 * line, mark + 3 * line, inset - line, THEME.background) + slab(x, y, mark - 2 * line, mark + 2 * line, inset, THEME.empty)
-}
-
 // Clawd's picture scaled into his box, each row of the canvas as runs of one colour.
 const sprite = ({ rgba, width, height }: { rgba: string; width: number; height: number }, col: number, row: number): string => {
   const px = Buffer.from(rgba, 'base64')
@@ -260,8 +184,7 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
   const barCol = BARS + LABEL + FRAME
   const bar = (at: number, label: string, percent: number, timer: string, color: string, timerColor = THEME.text) => {
     const row = TOP + at
-    // The context bar has its own picture; a cold cache's colour is the bar's own at any level.
-    const drawn = label === WINDOW ? contextPill(barCol, row, percent, scene.isCold ? color : null) : pill(barCol, row, percent, color, label === '7d' ? DAYS : 1)
+    const drawn = pill(barCol, row, percent, color, label === '7d' ? DAYS : 1)
     return (
       runs(BARS, row, [
         { text: label.padEnd(LABEL), color: THEME.dim },
@@ -276,17 +199,11 @@ const band = (scene: Scene, frame: number, elapsedMs: number, note?: string): st
     )
   }
 
-  // Once the session is in Dumb Memory its name stands in the top row, over where the zone starts.
-  const words = isInZone(scene.context)
-    ? runs(Math.min(barCol + Math.floor(ZONE_FROM * BAR), COLUMNS - 1 - ZONE_WORDS.length), 0, [{ text: ZONE_WORDS, color: THEME.warning }])
-    : ''
-
   // The top row, three rows of Clawd and bars, the model line under him, and for the tour a note below.
   const rows = TOP + (note ? 6 : 4)
   const width = COLUMNS * CELL_W + PAD * 2
   const height = rows * CELL_H + PAD * 2
   const body =
-    words +
     sprite(picture(scene.pose, 0, frame), 1, TOP) +
     runs(1 + Math.floor((BOX_COLUMNS - caption.length) / 2), TOP + 3, [
       { text: MODEL, color: THEME.text, bold: true },

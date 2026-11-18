@@ -1,14 +1,14 @@
 import type { On, SessionContextBreakdown } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
 
-import { barRuns, rowsOf } from './band'
+import { rowsOf } from './band'
+import { pill } from './pill'
 import { BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
 import type { Drawn } from './kit'
-import { BAR_STYLES, settings } from './settings'
+import { settings } from './settings'
 
 // A session at 320k of a 1M window, as /context broke one down: 21100 loaded
-// before the conversation, auto-compaction at 667k of a 700k compaction window.
+// before the conversation, compacting itself at 667k of a 700k compaction window.
 const BREAKDOWN = {
   categories: [
     { name: 'System prompt', tokens: 3512, color: 'promptBorder', isDeferred: false, kind: 'used' },
@@ -30,12 +30,6 @@ const BREAKDOWN = {
 
 const CONTEXT = { window: 1_000_000, tokens: 320807, percent: 32 }
 
-// The context bar's three extras are off unless turned on: the tests of what they draw turn
-// all three on.
-const SHOWN = { show_context_kinds: true, show_dumb_memory: true, show_autocompact: true } as const
-// The little bars alone: the tests of the breakdown and of what it draws turn them on.
-const LITTLE = { show_context_kinds: true } as const
-
 // A session the engine answers for; counts the breakdowns the mod asks of it.
 const sessionOf = (on: On, context: { window: number; tokens?: number; percent?: number } = CONTEXT, breakdown = BREAKDOWN) => {
   const asked = { breakdowns: 0 }
@@ -53,29 +47,6 @@ const sessionOf = (on: On, context: { window: number; tokens?: number; percent?:
   on('ui.blit', () => ({ value: {} }))
   return asked
 }
-
-test('a session is asked for its context by category once while nothing happens', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const asked = sessionOf(on)
-  const ui = await $.ui.mount(BAND)
-  await clock.advance(10_000)
-  expect(asked.breakdowns).toBe(1)
-  await ui.unmount()
-})
-
-// The context row of a session of a 1M window that loaded 21100 tokens before its conversation.
-const zoneAt = (tokens: number) => {
-  const context = { window: 1_000_000, tokens, percent: Math.round(tokens / 10_000) }
-  return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100 }, settings(SHOWN)).at(-1)?.zone
-}
-
-test('Dumb Memory starts at what the session loaded plus two fifths of the room left in the window', () => {
-  // 21100 + 40% of 978900 is 412660 of the million.
-  expect(zoneAt(320_807)).toEqual({ from: 0.41266, isIn: false })
-  // The session is in it by its own tokens, one past the start.
-  expect(zoneAt(412_660)?.isIn).toBe(false)
-  expect(zoneAt(412_661)).toEqual({ from: 0.41266, isIn: true })
-})
 
 const DAY = 86_400_000
 
@@ -98,115 +69,46 @@ test('the usage rows each carry a line of detail for the pointer: when the windo
   expect(rowsOf({ usage: null, context: null, cacheAt: null, now: NOW }, settings({})).map(row => row.detail)).toEqual([undefined, undefined, undefined])
 })
 
-test("the context row's line of detail says what the window holds and where its marks are; Dumb Memory has a line of its own once the session is in it", () => {
-  const rowAt = (tokens: number, options: Parameters<typeof settings>[0] = SHOWN) => {
+test("the context row's line of detail says what the window holds", () => {
+  const rowAt = (tokens: number) => {
     const context = { window: 1_000_000, tokens, percent: Math.round(tokens / 10_000) }
-    return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100, compactAt: 667_000 }, settings(options)).at(-1)
+    return rowsOf({ usage: null, context, cacheAt: null, now: NOW }, settings({})).at(-1)
   }
-  const short = rowAt(320_807)
-  // Short of it Dumb Memory has a line of its own: where it starts and how far off that is.
-  expect([short?.detail, short?.zoneDetail, short?.zoneLine]).toEqual([
-    '320.8k of 1M',
-    undefined,
-    'Dumb Memory from 412.7k · 91.9k to go · answers get worse past it',
-  ])
-  // 450000 is 37340 past the start at 412660.
-  const inside = rowAt(450_000)
-  expect([inside?.detail, inside?.zoneDetail]).toEqual([
-    '450k of 1M',
-    // What stands either side of its name on the band.
-    { before: '37.3k inside', after: '/compact or /new' },
-  ])
-  expect(rowAt(320_807, { show_dumb_memory: false, show_autocompact: false })?.detail).toBe('320.8k of 1M')
+  expect(rowAt(320_807)?.detail).toBe('320.8k of 1M')
+  expect(rowAt(450_000)?.detail).toBe('450k of 1M')
   // A window no reply has measured holds nothing to say.
   expect(rowsOf({ usage: null, context: { window: 200_000 }, cacheAt: null, now: NOW }, settings({})).at(-1)?.detail).toBe(undefined)
 })
 
-// The context row of the session of CONTEXT, auto-compaction at 667k, its bar in a style.
-const markRowAt = (tokens: number, bar_style: 'pill' | 'blocks') => {
-  const context = { window: 1_000_000, tokens, percent: Math.round(tokens / 10_000) }
-  return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100, compactAt: 667_000 }, settings({ ...SHOWN, bar_style })).at(-1)
-}
+// The context row of the session of CONTEXT, its bar in a style.
+const contextRowIn = (bar_style: 'pill' | 'blocks') =>
+  rowsOf({ usage: null, context: CONTEXT, cacheAt: null, now: NOW }, settings({ bar_style })).at(-1)
 
-test("in the picture style auto-compaction's words leave the row's line for a line of their own, the pill's; a bar in text keeps them in the row's line", () => {
-  const pictured = markRowAt(320_807, 'pill')
-  // 667000 - 320807 is 346193 still to go.
-  expect([pictured?.detail, pictured?.markLine]).toEqual(['320.8k of 1M', 'auto-compact at 667k · 346.2k to go'])
-  const text = markRowAt(320_807, 'blocks')
-  expect([text?.detail, text?.markLine]).toEqual(['320.8k of 1M · auto-compact at 667k', undefined])
-})
-
-test("once the session has reached auto-compaction the pill's line says only where it runs", () => {
-  expect(markRowAt(667_000, 'pill')?.markLine).toBe('auto-compact at 667k')
-  expect(markRowAt(690_000, 'pill')?.markLine).toBe('auto-compact at 667k')
-  // One short of it, a token is still to go.
-  expect(markRowAt(666_999, 'pill')?.markLine).toBe('auto-compact at 667k · 1 to go')
-})
-
-test("the context row carries a little bar for every kind of memory the session loaded, in /context's order and colours", () => {
-  const context = { window: 1_000_000, tokens: 320_807, percent: 32 }
-  const categories = [
-    { name: 'System prompt', tokens: 3512, color: 'promptBorder' },
-    { name: 'MCP tools', tokens: 0, color: 'cyan_FOR_SUBAGENTS_ONLY' },
-    { name: 'Memory files', tokens: 3293, color: 'claude' },
-    { name: 'Messages', tokens: 299_707, color: 'purple_FOR_SUBAGENTS_ONLY' },
-  ]
-  const piecesOf = (reading: object) => rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100, ...reading }, settings({})).at(-1)?.pieces
-  // Each is its share of the window, in the colour a Text takes and the one a picture is
-  // drawn in. The conversation is the fill's own, and a kind that holds nothing has no bar.
-  expect(piecesOf({ categories })).toEqual([
-    { share: 0.003512, paint: { text: 'promptBorder', rgba: [136, 136, 136, 255] } },
-    { share: 0.003293, paint: { text: 'claude', rgba: [215, 119, 87, 255] } },
-  ])
-  expect(piecesOf({})).toBe(undefined)
-})
-
-test('with show_dumb_memory off the context row has no Dumb Memory', () => {
-  const zoneWith = (options: Parameters<typeof settings>[0]) => {
-    const context = { window: 1_000_000, tokens: 450_000, percent: 45 }
-    return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100 }, settings(options)).at(-1)?.zone
+test("in a picture's style and in text the context row's line of detail says what the window holds, and nothing more", () => {
+  for (const style of ['pill', 'blocks'] as const) {
+    const row = contextRowIn(style)
+    expect(row?.detail).toBe('320.8k of 1M')
+    expect(Object.keys(row ?? {}).filter(key => key.startsWith('mark'))).toEqual([])
   }
-  expect(zoneWith(SHOWN)).toBeDefined()
-  expect(zoneWith({ show_dumb_memory: false })).toBe(undefined)
-})
-
-test('auto-compaction is marked where it runs along the window', () => {
-  const markOf = (compactAt: number | null) => {
-    const context = { window: 1_000_000, tokens: 320_807, percent: 32 }
-    return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100, compactAt }, settings(SHOWN)).at(-1)?.mark
-  }
-  expect(markOf(667_000)).toBe(0.667)
-  // No mark with auto-compaction off, nor where it would run at the window's end or past it.
-  expect([markOf(null), markOf(1_000_000), markOf(1_200_000)]).toEqual([undefined, undefined, undefined])
-})
-
-test('with show_autocompact off the context row has no auto-compaction mark', () => {
-  const markWith = (options: Parameters<typeof settings>[0]) => {
-    const context = { window: 1_000_000, tokens: 320_807, percent: 32 }
-    return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 21_100, compactAt: 667_000 }, settings(options)).at(-1)?.mark
-  }
-  expect(markWith(SHOWN)).toBe(0.667)
-  expect(markWith({ show_autocompact: false })).toBe(undefined)
 })
 
 test(
-  'auto-compaction is a short grey pill in the context bar, a clear ring round it',
-  { options: { ...SHOWN, cell_ratio: '2.34' } },
+  'where the session compacts itself the context bar is its empty part, and nothing is drawn there for the pointer',
+  { options: { cell_ratio: '2.34' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on)
     const ui = await $.ui.mount(PILLS)
     await clock.advance(1000)
     const bar = (await imageOf(ui, 'bar-1m'))!
-    // 667000 of the million is 247.5 of the 371 pixels. The pill is 8 wide, 243.5 to 251.5,
-    // as tall as the fill, in the grey /context gives the buffer, solid.
-    const GREY = [153, 153, 153, 255]
-    expect([245, 247, 249].map(x => pixelOf(bar, x, 14))).toEqual([GREY, GREY, GREY])
-    // Round it a clear ring 2 wide parts it from the bar, and from Dumb Memory's outline over it.
-    expect([242, 252].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0])
-    expect(pixelOf(bar, 247, 5)[3]).toBe(0)
-    // Either side the bar is as it was.
-    expect([pixelOf(bar, 238, 14), pixelOf(bar, 257, 14)]).toEqual([TRACK, TRACK])
+    // 667000 of the million is 371 * 0.667 = 247.457 of the 371 pixels, a line 2 thick. 2 lines
+    // either side, 243.457 to 251.457, and a line more, 241.457 to 253.457: every whole pixel
+    // there is the bar's empty part, at mid height and a line in from the bar's top.
+    expect([242, 244, 247, 250, 252].map(x => pixelOf(bar, x, 14))).toEqual([TRACK, TRACK, TRACK, TRACK, TRACK])
+    expect(pixelOf(bar, 247, 5)).toEqual(TRACK)
+    // The row holds its bar and nothing keyed beside it; the one line of detail is the row's.
+    expect((await keysIn(ui, 'row-1m')).filter(key => key !== undefined)).toEqual(['bar-1m'])
+    expect(keysUnder(await ui.drawn()).filter(key => key.startsWith('detail'))).toEqual(['detail-1m'])
     await ui.unmount()
   },
 )
@@ -215,93 +117,11 @@ test(
 // tall as wide that is a picture 371 pixels by 28, every line of it 2 thick.
 const PILLS = { ...BAND, props: { ...BAND.props, bodyColumns: 71 } }
 const TRACK = [153, 153, 153, 102]
-const BLACK = [0, 0, 0, 255]
 // The row's own colour, bar_color_context's default: Claude's orange.
 const ORANGE = [215, 119, 87, 255]
-// The colours of three kinds of memory in the pictures below.
-const [GREY, LIGHT, AMBER] = [[136, 136, 136, 255], [153, 153, 153, 255], [255, 193, 7, 255]]
-
-// A breakdown that loaded the given kinds, each a theme colour and its tokens, before a conversation.
-const loadedOf = (...kinds: [string, number][]) =>
-  ({
-    ...BREAKDOWN,
-    categories: [
-      ...kinds.map(([color, tokens], k) => ({ name: `Kind ${k}`, tokens, color, isDeferred: false, kind: 'used' })),
-      { name: 'Messages', tokens: 20_000, color: 'purple_FOR_SUBAGENTS_ONLY', isDeferred: false, kind: 'used' },
-    ],
-  }) as unknown as SessionContextBreakdown
-
-// A little pill from `from` to `to` along the picture, at mid height: the pixel before it
-// clear, its first and last pixels in its colour, the pixel after it clear.
-const spanOf = (bar: Drawn, from: number, to: number) => [
-  pixelOf(bar, from - 1, 14)[3],
-  pixelOf(bar, from, 14),
-  pixelOf(bar, to - 1, 14),
-  pixelOf(bar, to, 14)[3],
-]
 
 test(
-  'Dumb Memory is an outline inside the context bar, black while the session is short of it',
-  { options: { ...SHOWN, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    expect([bar.source.width, bar.source.height]).toEqual([371, 28])
-    // It starts at 0.41266 of the 371 pixels, 153.1: its left end at mid height, and its
-    // upper edge further along, where the fill's clear ring would lie.
-    expect(pixelOf(bar, 154, 14)).toEqual(BLACK)
-    expect(pixelOf(bar, 300,5)).toEqual(BLACK)
-    // It runs to the bar's end, whether or not auto-compaction is on.
-    expect(pixelOf(bar, 365, 14)).toEqual(BLACK)
-    // Before it, and inside it, the bar's empty part is as ever.
-    expect(pixelOf(bar, 150, 14)).toEqual(TRACK)
-    expect(pixelOf(bar, 300,14)).toEqual(TRACK)
-    await ui.unmount()
-  },
-)
-
-test(
-  "short of Dumb Memory the conversation's fill is drawn after the little pills, in the row's own colour",
-  { options: { ...SHOWN, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // The last little pill ends at 86, the fill starts a gap of 4 after it, at 90. It ends where
-    // 32% of the 371 pixels does, 118.7, less the inset of 6: 112.7. Then its clear ring.
-    expect([91, 100, 110].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE, ORANGE])
-    expect([89, 113].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0])
-    expect(pixelOf(bar, 116, 14)).toEqual(TRACK)
-    expect(bar.alt).toBe('1m 32%')
-    await ui.unmount()
-  },
-)
-
-test(
-  "the conversation's fill is never shorter than 16 pixels, longer than any little pill",
-  { options: { ...LITTLE, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // 3% of the 371 pixels is 11: the fill would end before the little pills do.
-    sessionOf(on, { window: 1_000_000, tokens: 30_000, percent: 3 })
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // From 90 to 106: eight lines of 2. Its round ends are blends; within them, orange.
-    expect([91, 98, 104].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE, ORANGE])
-    expect([89, 106].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0])
-    expect(pixelOf(bar, 109, 14)).toEqual(TRACK)
-    await ui.unmount()
-  },
-)
-
-test(
-  'with show_context_kinds off the context bar is one fill from its start, as ever',
+  'the context bar of a session that loaded every kind of memory is one fill from its start',
   { options: { cell_ratio: '2.34' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
@@ -309,7 +129,7 @@ test(
     const ui = await $.ui.mount(PILLS)
     await clock.advance(1000)
     const bar = (await imageOf(ui, 'bar-1m'))!
-    // No little pills, no Dumb Memory: the fill runs from the bar's start to 118.7.
+    // The fill runs from the bar's start to 118.7.
     expect([14, 100].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE])
     expect(pixelOf(bar, 125, 14)).toEqual(TRACK)
     await ui.unmount()
@@ -317,41 +137,40 @@ test(
 )
 
 test(
-  'a context bar with Dumb Memory and no little pills shows one plain fill from its start, in its own colour short of it',
-  { options: { ...SHOWN, cell_ratio: '2.34' } },
+  "with the options as they come the context bar of a session that loaded every kind of memory is the picture of a plain bar, one fill in the row's own colour",
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
-    // Nothing loaded but the conversation: Dumb Memory starts at 400000, the session at 320807.
-    // The fill runs from the bar's start to 32% of 371 pixels, 118.7, as with the little bars off.
-    sessionOf(on, CONTEXT, loadedOf())
-    const short = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(short, 'bar-1m'))!
-    expect([14, 100].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE])
-    expect(pixelOf(bar, 125, 14)).toEqual(TRACK)
-    await short.unmount()
-  },
-)
-
-test(
-  'a context bar in Dumb Memory with no little pills shows one plain fill from its start, in the warning colour',
-  { options: { ...SHOWN, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // Nothing loaded but the conversation: Dumb Memory starts at 400000, the session at 450000.
-    // The fill runs from the bar's start to 45% of 371 pixels, 167; the outline starts at 148.4.
-    sessionOf(on, INSIDE, loadedOf())
+    sessionOf(on)
     const ui = await $.ui.mount(PILLS)
     await clock.advance(1000)
     const bar = (await imageOf(ui, 'bar-1m'))!
-    const RED = [255, 107, 128, 255]
-    expect([14, 100].map(x => pixelOf(bar, x, 14))).toEqual([RED, RED])
+    // 31 cells at the usual 2.2, 32% used, one segment, none warned: the context's orange on the
+    // faint grey, the warning the theme's error red.
+    const plain = pill({ columns: 31, ratio: 2.2, percent: 32, segments: 1, warned: 0, fill: [215, 119, 87, 255], track: [153, 153, 153, 102], warn: [255, 107, 128, 255] })
+    expect([bar.columns, bar.source.width, bar.source.height]).toEqual([31, plain.width, plain.height])
+    expect(bar.source.rgba === plain.rgba).toBe(true)
     await ui.unmount()
   },
 )
 
 test(
-  'a context row with no reading draws no fill after its little pills',
+  "in blocks the context bar of a session that loaded every kind of memory is one fill in the row's own colour, then its empty part",
+  { options: { bar_style: 'blocks' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    sessionOf(on)
+    const ui = await $.ui.mount(PILLS)
+    await clock.advance(1000)
+    // The bar is the row's children between the dot after its label and the dot before its figure.
+    const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
+    const cells = row.children.slice(2, row.children.map(textIn).indexOf('·', 2))
+    expect([...new Set(cells.map(cell => cell.props.color))]).toEqual(['claude', 'inactive'])
+    await ui.unmount()
+  },
+)
+
+test(
+  'a context row with no reading draws no fill',
   { options: { cell_ratio: '2.34' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
@@ -366,400 +185,52 @@ test(
   },
 )
 
-test(
-  'a little pill is as long as its kind holds against the largest: 6 pixels for almost nothing, 14 for the largest',
-  { options: { ...LITTLE, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // 8000, 4000 and 1000 of the million are each under 3 pixels of 371: they are 6 + 8 x 1,
-    // 6 + 8 x 0.5 and 6 + 8 x 0.125 long, 14, 10 and 7, from 10 with a gap of 4 between two.
-    sessionOf(on, { window: 1_000_000, tokens: 33_000, percent: 3 }, loadedOf(['promptBorder', 8000], ['inactive', 4000], ['warning', 1000]))
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    expect(spanOf(bar, 10, 24)).toEqual([0, GREY, GREY, 0])
-    expect(spanOf(bar, 28, 38)).toEqual([0, LIGHT, LIGHT, 0])
-    expect(spanOf(bar, 42, 49)).toEqual([0, AMBER, AMBER, 0])
-    // The fill a gap after the last, at its least, 53 to 69.
-    expect([54, 67].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE])
-    expect([52, 69].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0])
-    await ui.unmount()
-  },
-)
-
-test(
-  'little pills of kinds that hold the same are as long as each other',
-  { options: { ...LITTLE, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // 4000, 4000 and 8000: 10, 10 and 14 long.
-    sessionOf(on, { window: 1_000_000, tokens: 36_000, percent: 4 }, loadedOf(['promptBorder', 4000], ['inactive', 4000], ['warning', 8000]))
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    expect(spanOf(bar, 10, 20)).toEqual([0, GREY, GREY, 0])
-    expect(spanOf(bar, 24, 34)).toEqual([0, LIGHT, LIGHT, 0])
-    expect(spanOf(bar, 38, 52)).toEqual([0, AMBER, AMBER, 0])
-    await ui.unmount()
-  },
-)
-
-test(
-  'a little pill whose kind holds more than its scaled length is as long as what it holds',
-  { options: { ...LITTLE, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // 100000 of the million is 37.1 of 371 pixels, more than 14: 37. 30000 is 11.1, more than
-    // 6 + 8 x 0.3 = 8.4: 11. 1000 is 0.4, less than 6 + 8 x 0.01 = 6.08: 6.
-    sessionOf(on, { window: 1_000_000, tokens: 200_000, percent: 20 }, loadedOf(['promptBorder', 100_000], ['inactive', 30_000], ['warning', 1000]))
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    expect(spanOf(bar, 10, 47)).toEqual([0, GREY, GREY, 0])
-    expect(spanOf(bar, 51, 62)).toEqual([0, LIGHT, LIGHT, 0])
-    expect(spanOf(bar, 66, 72)).toEqual([0, AMBER, AMBER, 0])
-    // The 6 pixel one is whole: as tall as the others, 6 to 22 down.
-    expect(pixelOf(bar, 68, 7)).toEqual(AMBER)
-    await ui.unmount()
-  },
-)
-
-test(
-  'once the session is in Dumb Memory the fill shows, red like the outline, striped with black within it, the rest of its inside faintly red',
-  { options: { ...SHOWN, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // 450000 of the million: past the start at 412660. The fill ends at 45% of 371 pixels, 167.
-    sessionOf(on, { window: 1_000_000, tokens: 450_000, percent: 45 })
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    const RED = [255, 107, 128, 255]
-    expect(pixelOf(bar, 300,5)).toEqual(RED)
-    expect(pixelOf(bar, 365, 14)).toEqual(RED)
-    // The fill shows only now, and in the warning colour from the bar's start. Inside the
-    // outline it and black show by turns, in slanting stripes 4 pixels wide: a point where
-    // across and down add up to 168 to 171 is red, one where they add up to 172 to 175 black.
-    expect(pixelOf(bar, 100, 14)).toEqual(RED)
-    expect(pixelOf(bar, 157, 11)).toEqual(RED)
-    expect(pixelOf(bar, 158, 14)).toEqual(BLACK)
-    // Past the fill's end the inside is the warning colour at two fifths solid, as the empty part is.
-    expect(pixelOf(bar, 300,14)).toEqual([255, 107, 128, 102])
-    // Short of the outline the empty part does not change: there is none left here, so the bar's edge.
-    expect(pixelOf(bar, 100, 3)).toEqual(TRACK)
-    await ui.unmount()
-  },
-)
-
-test(
-  'each kind of memory the session loaded is a little pill of its own at the start of the context bar',
-  { options: { ...LITTLE, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // Six kinds, none a hundredth of the window: each is 6 + 8 x its share of the largest's,
-    // System tools' 8045, rounded: 9, 14, 6, 7, 9 and 11 pixels, 4 clear pixels between two.
-    // They start 10 pixels in, a gap further than a fill does, so that the ring round the
-    // first keeps clear of the bar's round end: 10 to 19, 23 to 37, 41 to 47, 51 to 58, 62
-    // to 71 and 75 to 86, in /context's order and colours.
-    const middles = [14, 30, 44, 54, 66, 80].map(x => pixelOf(bar, x, 14))
-    expect(middles).toEqual([
-      [136, 136, 136, 255],
-      [153, 153, 153, 255],
-      [22, 163, 74, 255],
-      [177, 185, 249, 255],
-      [215, 119, 87, 255],
-      [255, 193, 7, 255],
-    ])
-    expect([20, 38, 48, 59, 72].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0, 0, 0, 0])
-    // The bar's rim is whole round its end: at the first pill's upper left the bar's own
-    // colour, not the clear of a ring cut through it.
-    expect(pixelOf(bar, 6, 6)).toEqual(TRACK)
-    // After the last, a clear gap, then the conversation's fill.
-    expect(pixelOf(bar, 88, 14)[3]).toBe(0)
-    expect(pixelOf(bar, 94, 14)).toEqual(ORANGE)
-    await ui.unmount()
-  },
-)
-
-test(
-  "in Dumb Memory the conversation's fill starts after the little pills, a clear gap between",
-  { options: { ...SHOWN, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    sessionOf(on, { window: 1_000_000, tokens: 450_000, percent: 45 })
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // The last little pill ends at 86; the fill runs from 90 to where it always ended.
-    expect(pixelOf(bar, 80, 14)).toEqual([255, 193, 7, 255])
-    expect(pixelOf(bar, 88, 14)[3]).toBe(0)
-    expect(pixelOf(bar, 94, 14)).toEqual([255, 107, 128, 255])
-    await ui.unmount()
-  },
-)
-
-test('a bar in text leads with a full cell for each little bar, and fills on after them', () => {
-  // Ten cells, three little bars, nothing filled: three full squares of their own, then the empty part.
-  expect(barRuns(10, 0, BAR_STYLES.squares, 1, 0, 3)).toEqual([
-    { text: '■', part: 'filled', piece: 0 },
-    { text: '■', part: 'filled', piece: 1 },
-    { text: '■', part: 'filled', piece: 2 },
-    { text: '□□□□□□□', part: 'empty' },
-  ])
-  // Half full: the fill's five cells hold the three, so two more are the fill's own.
-  expect(barRuns(10, 50, BAR_STYLES.squares, 1, 0, 3).map(run => run.text)).toEqual(['■', '■', '■', '■■', '□□□□□'])
-})
-
-test('a bar in text with little bars gives any fill at least two of their units of its own', () => {
-  // 5% of ten cells is half of one, under the three little bars: the fill is still two cells.
-  expect(barRuns(10, 5, BAR_STYLES.squares, 1, 0, 3).map(run => [run.text, run.part])).toEqual([
-    ['■', 'filled'],
-    ['■', 'filled'],
-    ['■', 'filled'],
-    ['■■', 'filled'],
-    ['□□□□□', 'empty'],
-  ])
-  // A little bar in circles is one circle, two cells: the fill is two circles after it.
-  expect(barRuns(10, 2, BAR_STYLES.circles, 1, 0, 1).map(run => run.text).join('')).toBe(`${WHOLE} ${WHOLE} ${WHOLE} ${OPEN} ${OPEN} `)
-  // Nothing used, nothing filled.
-  expect(barRuns(10, 0, BAR_STYLES.squares, 1, 0, 3).at(-1)).toEqual({ text: '□□□□□□□', part: 'empty' })
-})
-
-// What a full cell is in each style of bar drawn in text; the first cell of `blocks` is its round end.
-const FULL = { blocks: ['\ue0b6', '█'], dots: ['⣿', '⣿'], squares: ['■', '■'], line: ['━', '━'] } as const
-const KINDS = ['promptBorder', 'inactive', 'green_FOR_SUBAGENTS_ONLY', 'permission', 'claude', 'warning']
-// The cells of the conversation's fill: those in the row's colour after the six little bars.
-const fillOf = (children: Tree[]): number =>
-  children
-    .slice(8)
-    .filter(cell => cell?.props?.color === 'claude')
-    .map(textIn)
-    .join('').length
-
-
-for (const [style, [first, full]] of Object.entries(FULL)) {
-  test(`bars drawn as ${style} show each kind of memory as one cell in its colour`, { options: { ...SHOWN, bar_style: style } }, async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    // The row is its label, a dot, the bar's runs, a dot and the figures.
-    const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-    const cells = row.children.slice(2, 8)
-    expect(cells.map(cell => cell.props.color)).toEqual(KINDS)
-    expect(cells.map(textIn)).toEqual([first, full, full, full, full, full])
-    // The conversation's fill follows them in the row's own colour, short of Dumb Memory too:
-    // 32% of 31 cells is 10, four after the six.
-    expect(row.children[8]?.props.color).toBe('claude')
-    expect(fillOf(row.children)).toBe(4)
-    await ui.unmount()
-  })
-
-  test(`bars drawn as ${style} give the conversation's fill at least two cells after the little bars`, { options: { ...LITTLE, bar_style: style } }, async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // 3% of 31 cells is one, which the little bars would hide.
-    sessionOf(on, { window: 1_000_000, tokens: 30_000, percent: 3 })
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-    expect(row.children[8]?.props.color).toBe('claude')
-    expect(fillOf(row.children)).toBe(2)
-    await ui.unmount()
-  })
-}
-
-test('with show_context_kinds off a bar in text is one fill from its start, as ever', { options: { bar_style: 'squares' } }, async ($, on) => {
+test('a bar in text is one fill from its start', { options: { bar_style: 'dots' } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   sessionOf(on)
   const ui = await $.ui.mount(PILLS)
   await clock.advance(1000)
   const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
+  // 31 cells of three steps each: 32% of 93 steps is 29.76, rounded to 30, ten whole cells.
   expect(row.children.slice(2, 4).map(cell => [textIn(cell), cell.props.color])).toEqual([
-    ['■'.repeat(10), 'claude'],
-    ['□'.repeat(21), 'inactive'],
+    ['⣿'.repeat(10), 'claude'],
+    ['⣀'.repeat(21), 'inactive'],
   ])
   await ui.unmount()
 })
 
-test('with show_dumb_memory alone a bar in squares has no little bars: its fill starts in its first cell', { options: { bar_style: 'squares', show_dumb_memory: true } }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-  // 32% of 31 cells is 10, from the bar's first cell, in the row's own colour.
-  expect([textIn(row.children[2]!), row.children[2]?.props.color]).toEqual(['■'.repeat(10), 'claude'])
-  // No cell anywhere in the row is in a colour of the little bars.
-  const colors = row.children.map(cell => cell.props?.color)
-  expect(colors.filter(color => KINDS.includes(color as string) && color !== 'claude' && color !== 'inactive')).toEqual([])
-  await ui.unmount()
-})
-
-test('a bar too short for a cell each shows what was loaded as one cell, in the first kind\'s colour', { options: { ...LITTLE, bar_style: 'squares' } }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  // 52 columns leave the bar 12 cells: six little bars would be half of it.
-  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 52 } })
-  await clock.advance(1000)
-  const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-  // The fill after it in the row's colour: 32% of 12 cells is 4, three after the one.
-  expect(row.children.slice(2, 5).map(cell => [textIn(cell), cell.props.color])).toEqual([
-    ['■', 'promptBorder'],
-    ['■■■', 'claude'],
-    ['□□□□□□□□', 'inactive'],
-  ])
-  await ui.unmount()
-})
-
-const [OPEN, HALF, WHOLE] = ['\u{F0766}', '\u{F1396}', '\u{F0765}']
-
-test('a circle is two cells, each half of it a cell: empty, half filled or full', () => {
-  // Eight cells are four circles of two halves. Half used: two full circles.
-  expect(barRuns(8, 50, BAR_STYLES.circles)).toEqual([
-    { text: WHOLE, part: 'filled', half: 0 },
-    { text: ' ', part: 'filled', half: 1 },
-    { text: WHOLE, part: 'filled', half: 2 },
-    { text: ' ', part: 'filled', half: 3 },
-    { text: OPEN, part: 'empty', half: 4 },
-    { text: ' ', part: 'empty', half: 5 },
-    { text: OPEN, part: 'empty', half: 6 },
-    { text: ' ', part: 'empty', half: 7 },
-  ])
-  // Three halves of the eight: the second circle is half filled, its right half empty.
-  expect(barRuns(8, 37.5, BAR_STYLES.circles).slice(2, 4)).toEqual([
-    { text: HALF, part: 'filled', half: 2 },
-    { text: ' ', part: 'empty', half: 3 },
-  ])
-  // A cell left over is a blank at the bar's end.
-  expect(barRuns(5, 0, BAR_STYLES.circles).map(run => run.text).join('')).toBe(`${OPEN} ${OPEN}  `)
-})
-
-test(
-  'in the circles style every half of a circle is a place for the pointer, with a line of its own',
-  { options: { ...LITTLE, bar_style: 'circles' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    // The 31 cells are 15 circles, 30 halves of 3.3% each. At 32% the first ten are used:
-    // the half numbered 9 is 30% to 33%, the next 33% to 37%.
-    const lineOf = async (half: number) => (await ui.find({ key: `detail-1m-${half}` })) as Tree | undefined
-    const [used, free, loaded] = [await lineOf(9), await lineOf(10), await lineOf(0)]
-    expect([used?.props.display, used?.props.position, used?.props.top, used?.props.left]).toEqual(['none', 'absolute', 0, 1])
-    expect(await hoverAt(ui, 'detail-1m-9')).toEqual({ scope: 'clawd-band-1m-9', display: 'flex' })
-    expect(used && textIn(used)).toBe('1m · 30% to 33% · used'.padEnd(69))
-    expect(free && textIn(free)).toBe('1m · 33% to 37% · free'.padEnd(69))
-    // What the session loaded is the first circle here: six little bars are too many for 15.
-    expect(loaded && textIn(loaded)).toBe('1m · 0% to 3% · loaded'.padEnd(69))
-    // The half itself is in its line's group: the row is its label, a dot, then the halves.
-    const row = keyed(await ui.drawn(), 'row-1m')
-    expect((row?.children?.[2 + 9] as { hover?: unknown } | undefined)?.hover).toEqual({ scope: 'clawd-band-1m-9' })
-    const first = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-    // The conversation's fill follows in the row's colour: 10 halves, the four circles after it.
-    expect([textIn(first.children[2]!), first.children[2]?.props.color, textIn(first.children[4]!), first.children[4]?.props.color]).toEqual([
-      WHOLE,
-      'promptBorder',
-      WHOLE,
-      'claude',
-    ])
-    await ui.unmount()
-  },
-)
-
-test("in the circles style the conversation's fill is at least two circles after the little bars", { options: { ...LITTLE, bar_style: 'circles' } }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  // 3% of 30 halves is one: under the one circle of what was loaded.
-  sessionOf(on, { window: 1_000_000, tokens: 30_000, percent: 3 })
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-  expect(row.children.slice(4, 9).map(cell => [textIn(cell), cell.props.color])).toEqual([
-    [WHOLE, 'claude'],
-    [' ', 'claude'],
-    [WHOLE, 'claude'],
-    [' ', 'claude'],
-    [OPEN, 'inactive'],
-  ])
-  await ui.unmount()
-})
-
-// A session past Dumb Memory's start at 412660.
+// A session at 450k of a 1M window.
 const INSIDE = { window: 1_000_000, tokens: 450_000, percent: 45 }
 
-test('the words Dumb Memory stand in the top row over where the zone starts once the session is in it: a button, in the warning colour', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on, INSIDE)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const words = await ui.find({ key: 'dumb-memory' })
-  expect([words?.type, words?.props.label, words?.props.plain]).toEqual(['Button', 'Dumb Memory', true])
-  expect((await ui.find({ type: 'Text', text: 'Dumb Memory' }))?.props.color).toBe('error')
-  // The bars start 22 cells in: 1, Clawd's 16, 1, "1m " and a blank. The zone starts 0.41266
-  // along the 31 cells of the bar, in its cell 12, so 34 cells in: the probe's cell, 17, the
-  // context button's 9 and the 7 cells before the words.
-  expect((await ui.find({ key: 'dumb-memory-before' }))?.props.width).toBe(7)
-  await ui.unmount()
-})
-
-test('short of Dumb Memory the top row holds no words, only the outline tells of it', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
-  expect(await ui.find({ key: 'bar-1m' })).toBeDefined()
-  await ui.unmount()
-})
-
-// Where the element keyed `key` starts in the top row: the cells of what stands before it.
-const columnOf = async (ui: { drawn: () => Promise<unknown> }, key: string): Promise<number> => {
-  const kids = ((keyed(await ui.drawn(), 'top') as Laid | undefined)?.children ?? []) as (Laid | string)[]
-  const at = kids.findIndex(kid => typeof kid !== 'string' && (kid.key ?? kid.props?.key) === key)
-  return at < 0 ? -1 : kids.slice(0, at).reduce((sum, kid) => sum + cellsAcross(kid), 0)
+// Every key in the tree as drawn, depth first.
+const keysUnder = (node: unknown): string[] => {
+  if (typeof node !== 'object' || node === null) return []
+  const at = node as DrawnNode
+  const key = at.key ?? at.props?.key
+  return [...(typeof key === 'string' ? [key] : []), ...(at.children ?? []).flatMap(keysUnder)]
 }
-
-for (const options of [{}, { bar_style: 'squares' }] as Record<string, string>[]) {
-  test(
-    `a dim button "≡ context" stands in the top row where the rows' labels start, with the three switches off${'bar_style' in options ? ', bars in text too' : ''}`,
-    { options },
-    async ($, on) => {
-      const clock = mock.clock(on, { now: NOW })
-      sessionOf(on)
-      const ui = await $.ui.mount(PILLS)
-      await clock.advance(1000)
-      const button = await ui.find({ key: 'context' })
-      expect([button?.type, button?.props.label, button?.props.plain, button?.props.dimColor]).toEqual(['Button', '≡ context', true, true])
-      // The labels start 18 cells in: a cell, Clawd's 16 and a cell; "7d" is the first of them.
-      expect(await columnOf(ui, 'context')).toBe(18)
-      await ui.unmount()
-    },
-  )
-}
-
-test('with show_context off there is no context button', { options: { show_context: false } }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  expect(await ui.find({ type: 'Text', text: /^7d/ })).toBeDefined()
-  expect(await ui.find({ key: 'context' })).toBe(undefined)
-  await ui.unmount()
-})
 
 test(
-  'with show_dumb_memory off the context bar fills in its own colour at any level',
-  { options: { cell_ratio: '2.34', show_dumb_memory: false } },
+  'a session at 450k of 1M fills the context bar in its own colour from its start, under a top row of the probe alone',
+  { options: { cell_ratio: '2.34' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
-    sessionOf(on)
+    sessionOf(on, INSIDE)
     const ui = await $.ui.mount(PILLS)
     await clock.advance(1000)
-    expect(pixelOf((await imageOf(ui, 'bar-1m'))!, 100, 14)).toEqual([215, 119, 87, 255])
+    const bar = (await imageOf(ui, 'bar-1m'))!
+    // The fill starts at the bar's start and ends where 45% of the 371 pixels does, 166.95, less
+    // the inset of 6: 160.95. At mid height it is the row's own orange throughout.
+    expect([14, 100, 150, 157].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE, ORANGE, ORANGE])
+    // Its clear ring, then the bar's empty part as ever, along to the bar's end.
+    expect(pixelOf(bar, 161, 14)[3]).toBe(0)
+    expect([pixelOf(bar, 164, 14), pixelOf(bar, 300, 14), pixelOf(bar, 300, 5), pixelOf(bar, 365, 14)]).toEqual([TRACK, TRACK, TRACK, TRACK])
+    // The top row is the probe alone, and nothing drawn is keyed for a zone or its words.
+    expect((await keysIn(ui, 'band'))[0]).toBe('probe')
+    expect(await ui.find({ key: 'top' })).toBe(undefined)
+    const keys = keysUnder(await ui.drawn())
+    expect(keys).toContain('bar-1m')
+    expect(keys.filter(key => key.startsWith('zone') || key.startsWith('dumb-memory'))).toEqual([])
     await ui.unmount()
   },
 )
@@ -784,7 +255,7 @@ const hoverAt = async (ui: { drawn: () => Promise<unknown> }, key: string): Prom
 }
 const textIn = (node: Tree | string): string => (typeof node === 'string' ? node : node.children.map(textIn).join(''))
 
-test("a row's line of detail is drawn hidden over the top row, in one hover group with its row", { options: SHOWN }, async ($, on) => {
+test("a row's line of detail is drawn hidden over the top row, in one hover group with its row", async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   sessionOf(on)
   const ui = await $.ui.mount(PILLS)
@@ -802,8 +273,28 @@ test("a row's line of detail is drawn hidden over the top row, in one hover grou
 })
 
 test(
-  "in the pill style with no picture drawn, the bar in text, the row's line of detail says where auto-compaction runs",
-  { options: { ...SHOWN, bar_style: 'pill' } },
+  "in blocks a bar's cells carry no hover of their own: the pointer anywhere on the row brings up the row's line of detail",
+  { options: { bar_style: 'blocks' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    sessionOf(on)
+    const ui = await $.ui.mount(PILLS)
+    await clock.advance(1000)
+    // The bar is drawn in text, all 31 of its cells.
+    expect(textBarCells((await ui.find({ key: 'row-1m' })) as unknown as Tree)).toBe(31)
+    const row = keyed(await ui.drawn(), 'row-1m')
+    const hoverOf = (node: unknown) => (node as DrawnNode).hover ?? (node as DrawnNode).props?.hover
+    expect(hoverOf(row)).toEqual({ scope: 'clawd-band-1m' })
+    // Nothing in the row, a cell of the bar least of all, is a place of its own for the pointer.
+    expect((row?.children ?? []).filter(child => typeof child === 'object' && hoverOf(child) !== undefined)).toEqual([])
+    expect(await hoverAt(ui, 'detail-1m')).toEqual({ scope: 'clawd-band-1m', display: 'flex' })
+    await ui.unmount()
+  },
+)
+
+test(
+  "in the pill style with no picture drawn, the bar in text, the row's line of detail says what the window holds",
+  { options: { bar_style: 'pill' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     on('session.id', () => ({ value: 'one' }))
@@ -816,350 +307,17 @@ test(
     on('ui.blit', () => ({ value: { deny: 'the Image draws its alt here: no pictures in a test' } }))
     const ui = await $.ui.mount(PILLS)
     await clock.advance(2000)
-    // No pill is drawn, so no line of its own: the row's line names it.
-    expect(await ui.find({ key: 'detail-mark' })).toBe(undefined)
     const line = (await ui.find({ key: 'detail-1m' })) as Tree | undefined
-    expect(line && textIn(line)).toBe('320.8k of 1M · auto-compact at 667k'.padEnd(69))
+    expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(69))
     await ui.unmount()
   },
 )
-
-test('the pointer on the zone itself, the framed part of the context bar, shows where Dumb Memory starts', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  // A picture is one place for the pointer, so an empty box lies over the zone's cells of
-  // the bar: after the label's three cells and the dot, from the bar's cell 12 to its last.
-  const over = await ui.find({ key: 'zone-over' })
-  expect([over?.props.position, over?.props.top, over?.props.left, over?.props.width, over?.props.height]).toEqual(['absolute', 0, 16, 19, 1])
-  expect(await hoverAt(ui, 'zone-over')).toEqual({ scope: 'clawd-band-zone' })
-  // Its line is hidden over the top row, as a row's is.
-  const line = (await ui.find({ key: 'detail-zone' })) as Tree | undefined
-  expect([line?.props.display, line?.props.position, line?.props.top, line?.props.left]).toEqual(['none', 'absolute', 0, 1])
-  expect(await hoverAt(ui, 'detail-zone')).toEqual({ scope: 'clawd-band-zone', display: 'flex' })
-  expect(line && textIn(line)).toBe('Dumb Memory from 412.7k · 91.9k to go · answers get worse past it'.padEnd(69))
-  await ui.unmount()
-})
 
 // The keys of what the element keyed `key` holds, in the order it is drawn.
 const keysIn = async (ui: { drawn: () => Promise<unknown> }, key: string): Promise<unknown[]> =>
   (keyed(await ui.drawn(), key)?.children ?? []).map(child => (child as DrawnNode).key ?? (child as DrawnNode).props?.key)
 
-test('the pointer on the auto-compaction pill itself, and only there, says where auto-compaction runs and how far off it is', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  // The bar is 31 cells, a row of 28 pixels at a cell ratio of 2.2: the picture is
-  // round(31 * 28 / 2.2) = 395 pixels across, a cell 395 / 31 = 12.742 of them, a line
-  // round(28 / 12) = 2. The pill's middle is at 395 * 0.667 = 263.465; with its clear ring it
-  // runs 3 lines either side, 257.465 to 269.465: cell 257.465 / 12.742 = 20.2 to cell
-  // 269.465 / 12.742 = 21.1. After the label's three cells and the dot, from 24, two wide.
-  const over = await ui.find({ key: 'mark-over' })
-  expect([over?.props.position, over?.props.top, over?.props.left, over?.props.width, over?.props.height]).toEqual(['absolute', 0, 24, 2, 1])
-  // A group of its own: neither the row's nor the zone's.
-  expect(await hoverAt(ui, 'mark-over')).toEqual({ scope: 'clawd-band-mark' })
-  // Drawn after the zone's box, so that where the pill lies in Dumb Memory its box is on top.
-  const row = await keysIn(ui, 'row-1m')
-  expect(row.indexOf('mark-over')).toBeGreaterThan(row.indexOf('zone-over'))
-  expect(row.indexOf('zone-over')).toBeGreaterThan(-1)
-  // Its line is hidden over the top row, as the zone's is, and drawn after it.
-  const line = (await ui.find({ key: 'detail-mark' })) as Tree | undefined
-  expect([line?.props.display, line?.props.position, line?.props.top, line?.props.left]).toEqual(['none', 'absolute', 0, 1])
-  expect(await hoverAt(ui, 'detail-mark')).toEqual({ scope: 'clawd-band-mark', display: 'flex' })
-  expect(line && textIn(line)).toBe('auto-compact at 667k · 346.2k to go'.padEnd(69))
-  const band = await keysIn(ui, 'band')
-  expect(band.indexOf('detail-mark')).toBeGreaterThan(band.indexOf('detail-zone'))
-  expect(band.indexOf('detail-zone')).toBeGreaterThan(-1)
-  await ui.unmount()
-})
-
-test("a bar in text draws no auto-compaction pill: the row's own line says where auto-compaction runs", { options: { ...SHOWN, bar_style: 'squares' } }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  expect(await ui.find({ key: 'mark-over' })).toBe(undefined)
-  expect(await ui.find({ key: 'detail-mark' })).toBe(undefined)
-  const line = (await ui.find({ key: 'detail-1m' })) as Tree | undefined
-  expect(line && textIn(line)).toBe('320.8k of 1M · auto-compact at 667k'.padEnd(69))
-  await ui.unmount()
-})
-
-test("the place for the pointer on a pill at the bar's end ends with the bar's last cell", { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on, CONTEXT, { ...BREAKDOWN, autoCompactThreshold: 999_000 })
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  // The pill's middle is at 395 * 0.999 = 394.605 of the 395 pixels; its ring runs from
-  // 388.605, in cell 388.605 / 12.742 = 30.5, to 400.605, past the picture's end: the box is
-  // the last cell alone, 30, after the label's three cells and the dot at 34.
-  const over = await ui.find({ key: 'mark-over' })
-  expect([over?.props.left, over?.props.width]).toEqual([34, 1])
-  await ui.unmount()
-})
-
-test('with the options as they come there is no auto-compaction pill, so no place for the pointer on it and no line of its own', async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  expect(await ui.find({ key: 'mark-over' })).toBe(undefined)
-  expect(await ui.find({ key: 'detail-mark' })).toBe(undefined)
-  await ui.unmount()
-})
-
-test("Dumb Memory's own detail stands hidden either side of its name, which stays free for a press", { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on, INSIDE)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const shown = { scope: 'clawd-band-zone', display: 'flex' }
-  const after = (await ui.find({ key: 'zone-after' })) as Tree | undefined
-  expect([after?.props.display, await hoverAt(ui, 'zone-after')]).toEqual(['none', shown])
-  // What stands before the name, "37.3k inside · ", is 15 cells and has the 7 between the
-  // context button and the name: it shows whole or not at all, never cut.
-  expect(await ui.find({ key: 'zone-before' })).toBe(undefined)
-  expect(after && textIn(after)).toBe(' · /compact or /new')
-  // The name is in their group, and the cells before it are as wide as they were: nothing moves.
-  expect(await hoverAt(ui, 'dumb-memory')).toEqual({ scope: 'clawd-band-zone' })
-  // The zone in the bar is in the same group: the pointer on it brings up the same words.
-  expect(await hoverAt(ui, 'zone-over')).toEqual({ scope: 'clawd-band-zone' })
-  expect(await ui.find({ key: 'detail-zone' })).toBe(undefined)
-  const spacer = await ui.find({ key: 'dumb-memory-before' })
-  expect([spacer?.props.width, spacer?.props.justifyContent]).toEqual([7, 'flex-end'])
-  await ui.unmount()
-  // On a band of 120 columns the bar is 80 cells and the zone starts floor(0.41266 * 80) = 33
-  // cells past its first, cell 22: the name at 55, 28 cells after the button's end at 27.
-  const wide = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 } })
-  await clock.advance(1000)
-  const before = (await wide.find({ key: 'zone-before' })) as Tree | undefined
-  expect([before?.props.display, await hoverAt(wide, 'zone-before')]).toEqual(['none', shown])
-  expect(before && textIn(before)).toBe('37.3k inside · ')
-  await wide.unmount()
-})
-
-test('a press on the words opens the Dumb Memory pane and hands it the keyboard', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on, INSIDE)
-  const opened: unknown[] = []
-  on('ui.open', ($, e) => {
-    opened.push([e.id, e.title, e.focus, e.closeOnEscape])
-    return { value: { isPlaced: true } }
-  })
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  await ui.press({ key: 'dumb-memory' })
-  expect(opened).toEqual([['clawd-context', 'Dumb Memory', true, true]])
-  await ui.unmount()
-})
-
-test('inside Dumb Memory the top row holds the context button, then the cells of the hidden detail, then the words, each in its own cells', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on, INSIDE)
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  // The probe's cell, 17 cells, "≡ context" in cells 18 to 26; the words where the zone starts,
-  // 34 cells in, as ever; the hidden detail has the 7 cells between, 27 to 33, too few for it.
-  expect((await ui.find({ key: 'context' }))?.props.label).toBe('≡ context')
-  expect(await columnOf(ui, 'context')).toBe(18)
-  expect(await columnOf(ui, 'dumb-memory-before')).toBe(27)
-  expect((await ui.find({ key: 'dumb-memory-before' }))?.props.width).toBe(7)
-  expect(await columnOf(ui, 'dumb-memory')).toBe(34)
-  expect(await ui.find({ key: 'zone-before' })).toBe(undefined)
-  await ui.unmount()
-})
-
-test('inside Dumb Memory, as the band narrows, the context button is "≡ context" while a blank is left before the words, then "≡" alone, and the words never move for it', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on, INSIDE)
-  // From 32 columns Clawd is a picture and the labels start 18 cells in; from 44 the bar is the
-  // band less 40 cells, and the zone starts floor(0.41266 of it) cells past its first, cell 22.
-  // "≡ context" and a blank take cells 18 to 27, so the words must stand at 28 or later: a bar of
-  // 15, floor(6.19) = 6, at 55 columns; at 54 the bar is 14, floor(5.78) = 5, the words at 27.
-  // Narrower, the words stand at 22 to 27 with the labels at 18; at 30 and 31 Clawd is text, the
-  // labels at 16 and the words at 21 or 22; from 25 to 29 Clawd is hidden, the labels at 11 and
-  // the words at 16 to 18. "≡" and a blank need the words 2 cells past the labels' start, and
-  // the words always stand past a label and its blank, 4 cells at least: so from 25, the
-  // narrowest band, to 54 the button is "≡", from 55 "≡ context", and no width leaves it out.
-  const want: Record<number, string> = {}
-  const read: Record<number, string> = {}
-  const wordsAt: Record<number, number> = {}
-  const wrong: string[] = []
-  for (let columns = 25; columns <= 60; columns++) {
-    want[columns] = columns >= 55 ? '≡ context' : '≡'
-    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: columns } })
-    await clock.advance(1000)
-    const label = String((await ui.find({ key: 'context' }))?.props.label)
-    read[columns] = label
-    const [at, words] = [await columnOf(ui, 'context'), await columnOf(ui, 'dumb-memory')]
-    if (words < 0 || at + label.length + 1 > words) wrong.push(`${columns}: "${label}" at ${at}, the words at ${words}`)
-    wordsAt[columns] = words
-    await ui.unmount()
-  }
-  expect(wrong).toEqual([])
-  expect([wordsAt[54], wordsAt[55]]).toEqual([27, 28])
-  expect(read).toEqual(want)
-})
-
-test('a press on the context button opens the same pane, titled Context, and hands it the keyboard', async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const opened: unknown[] = []
-  on('ui.open', ($, e) => {
-    opened.push([e.id, e.title, e.focus, e.closeOnEscape])
-    return { value: { isPlaced: true } }
-  })
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  await ui.press({ key: 'context' })
-  expect(opened).toEqual([['clawd-context', 'Context', true, true]])
-  await ui.unmount()
-})
-
-const ZONE_PANE = {
-  plugin: 'clawd-band',
-  surface: 'terminal',
-  component: 'Pane',
-  requestId: 'clawd-context',
-  props: {
-    title: 'Dumb Memory',
-    isFocused: true,
-    bodyColumns: 60,
-    placement: 'dock',
-    scroll: { offset: 0, bodyRows: 30 },
-    view: {},
-  },
-} as const
-
-test('the Dumb Memory pane lists the context by category and says where the zone starts for this session', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const band = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const pane = await $.ui.mount(ZONE_PANE)
-  const has = async (text: string) => (await pane.find({ type: 'Text', text })) !== undefined
-  expect(await has('Context · Fable 5.2')).toBe(true)
-  expect(await has(' 320.8k of 1M tokens (32%)')).toBe(true)
-  // Each row in use, its tokens and its share of the window; the deferred rows stay out.
-  expect(await has(' System prompt              3.5k   0.4%')).toBe(true)
-  expect(await has(' Messages                 299.7k  30.0%')).toBe(true)
-  expect(await pane.find({ type: 'Text', text: /deferred/ })).toBe(undefined)
-  // 21100 loaded and 40% of the 978900 left make 412660; the session is 91853 short of it.
-  expect(await has('Dumb Memory starts at 412.7k (loaded 21.1k + 40% of the room left):')).toBe(true)
-  expect(await has('a rule of thumb for where answers get worse.')).toBe(true)
-  expect(await has('This session is 91.9k short of it. Past it: /compact or /new.')).toBe(true)
-  // The pill is named while show_autocompact draws it.
-  expect(await has('Auto-compaction runs at 667k (the grey pill).')).toBe(true)
-  await pane.unmount()
-  await band.unmount()
-})
-
-test("the pane ends on a button that opens /usage, where the recommendations are, and fits its rows to a narrow pane", { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on)
-  const ran: string[] = []
-  on('command.run', { command: 'usage' }, ($, e) => {
-    ran.push(`${e.command} ${e.args}`.trim())
-    return { text: '' }
-  })
-  const band = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  // A pane 38 cells wide: a row is a square, the name in 21 cells, the tokens in 6 and the share in 6.
-  const pane = await $.ui.mount({ ...ZONE_PANE, props: { ...ZONE_PANE.props, bodyColumns: 38 } })
-  expect(await pane.find({ type: 'Text', text: ` System prompt${' '.repeat(11)}3.5k   0.4%` })).toBeDefined()
-  expect((await pane.find({ key: 'usage' }))?.props.label).toBe("See /usage's recommendations")
-  await pane.press({ key: 'usage' })
-  expect(ran).toEqual(['usage'])
-  await pane.unmount()
-  await band.unmount()
-})
-
-test('a breakdown the session refuses is asked for again the next second', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  let asked = 0
-  on('session.id', () => ({ value: 'one' }))
-  on('session.usage', ($, e) => {
-    if (!e.breakdown) return usageOf([], CONTEXT)
-    asked += 1
-    return asked === 1 ? { deny: 'not now' } : usageOf([], { ...CONTEXT, breakdown: BREAKDOWN })
-  })
-  on('store.get', () => ({ value: undefined }))
-  on('store.set', () => ({ value: undefined }))
-  on('session.authorize', () => ({ deny: 'no account in a test' }))
-  on('ui.render', core)
-  on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(BAND)
-  await clock.advance(5000)
-  // The one that failed, and the one that answered; none after it.
-  expect(asked).toBe(2)
-  await ui.unmount()
-})
-
-test('a session at rest is asked again once a minute, no sooner', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const asked = sessionOf(on)
-  const ui = await $.ui.mount(BAND)
-  await clock.advance(59_000)
-  expect(asked.breakdowns).toBe(1)
-  await clock.advance(3000)
-  expect(asked.breakdowns).toBe(2)
-  await clock.advance(57_000)
-  expect(asked.breakdowns).toBe(2)
-  await ui.unmount()
-})
-
-test(
-  'with the three switches off a press on the context button asks for the breakdown once, the open pane then says everything, and the bar stays plain',
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const asked = sessionOf(on)
-    on('ui.open', () => ({ value: { isPlaced: true } }))
-    const band = await $.ui.mount(PILLS)
-    await clock.advance(61_000)
-    expect(asked.breakdowns).toBe(0)
-    const plain = (await imageOf(band, 'bar-1m'))?.source.rgba
-    const pane = await $.ui.mount({ ...ZONE_PANE, props: { ...ZONE_PANE.props, title: 'Context' } })
-    const has = async (text: string) => (await pane.find({ type: 'Text', text })) !== undefined
-    expect(await has('The session has not said yet what it holds.')).toBe(true)
-    await band.press({ key: 'context' })
-    // The once-a-second work runs on the first tick after the second changes.
-    await clock.advance(1400)
-    expect(asked.breakdowns).toBe(1)
-    // The pane is drawn again with the reading: the rows by kind, Dumb Memory's lines, and
-    // auto-compaction's with no word of a pill, which the band does not draw.
-    expect(await has(' System prompt              3.5k   0.4%')).toBe(true)
-    expect(await has('Dumb Memory starts at 412.7k (loaded 21.1k + 40% of the room left):')).toBe(true)
-    expect(await has('This session is 91.9k short of it. Past it: /compact or /new.')).toBe(true)
-    expect(await has('Auto-compaction runs at 667k.')).toBe(true)
-    // One ask, not a minute's round of them; the bar is drawn as it was, no little bar, zone or pill.
-    await clock.advance(61_000)
-    expect(asked.breakdowns).toBe(1)
-    expect((await imageOf(band, 'bar-1m'))?.source.rgba).toBe(plain)
-    await pane.unmount()
-    await band.unmount()
-  },
-)
-
-const TURN_END = { answer: '', durationMs: 0, isAborted: false, turnId: 'turn-1', reason: 'answer' } as const
-
-test("the end of the conversation's own turn asks for the breakdown again, a subagent's does not", { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const asked = sessionOf(on)
-  on('turn.complete', () => ({ text: '' }))
-  const ui = await $.ui.mount(BAND)
-  await clock.advance(2000)
-  await $.turn.complete({ ...TURN_END, turnId: 'turn-2', agentId: 'agent-1' })
-  await clock.advance(1000)
-  expect(asked.breakdowns).toBe(1)
-  await $.turn.complete(TURN_END)
-  await clock.advance(1000)
-  expect(asked.breakdowns).toBe(2)
-  await ui.unmount()
-})
-
-test('with the three switches off a session whose window a reply has measured is asked for none', async ($, on) => {
+test('a session whose window a reply has measured is asked for no breakdown', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const asked = sessionOf(on)
   const ui = await $.ui.mount(BAND)
@@ -1169,7 +327,7 @@ test('with the three switches off a session whose window a reply has measured is
 })
 
 test(
-  'with the three switches as they come the breakdown is never asked for, and the context bar is the plain one',
+  'with the options as they come a session a reply has measured is never asked for its breakdown, and the context bar is the plain one',
   { options: { cell_ratio: '2.34' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
@@ -1178,16 +336,13 @@ test(
     await clock.advance(61_000)
     expect(asked.breakdowns).toBe(0)
     const bar = (await imageOf(ui, 'bar-1m'))!
-    // No little bars: one fill from the bar's start to 32% of 371 pixels, 118.7, in its own colour.
+    // One fill from the bar's start to 32% of 371 pixels, 118.7, in its own colour.
     expect([14, 100].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE])
     expect(pixelOf(bar, 125, 14)).toEqual(TRACK)
-    // No outline: where its upper edge and its end would run, the bar's empty part.
+    // Along to the bar's end, its empty part.
     expect([pixelOf(bar, 300, 5), pixelOf(bar, 365, 14)]).toEqual([TRACK, TRACK])
-    expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
-    expect(await ui.find({ type: 'Text', text: 'Dumb Memory' })).toBe(undefined)
-    // No pill: at 247.5 of the 371 pixels, and its ring at 242, the empty part.
+    // At 247.5 of the 371 pixels, and at 242, the empty part too.
     expect([pixelOf(bar, 242, 14), pixelOf(bar, 247, 14)]).toEqual([TRACK, TRACK])
-    expect(await ui.find({ key: 'detail-mark' })).toBe(undefined)
     const line = (await ui.find({ key: 'detail-1m' })) as Tree | undefined
     expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(69))
     await ui.unmount()
@@ -1195,113 +350,8 @@ test(
 )
 
 test(
-  'show_context_kinds alone asks for the breakdown and draws the little bars, with no outline and no pill',
-  { options: { show_context_kinds: true, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const asked = sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    expect(asked.breakdowns).toBe(1)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // The first little bar, System prompt's grey, from 10 to 19; after the last, at 86, a clear
-    // gap and the conversation's fill from 90 to 112.7.
-    expect(pixelOf(bar, 14, 14)).toEqual(GREY)
-    expect(pixelOf(bar, 88, 14)[3]).toBe(0)
-    expect(pixelOf(bar, 100, 14)).toEqual(ORANGE)
-    // No outline from 153.1 on, no pill at 247.5: the bar's empty part.
-    expect([pixelOf(bar, 300, 5), pixelOf(bar, 365, 14), pixelOf(bar, 242, 14), pixelOf(bar, 247, 14)]).toEqual([TRACK, TRACK, TRACK, TRACK])
-    expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
-    expect(await ui.find({ key: 'detail-mark' })).toBe(undefined)
-    await ui.unmount()
-  },
-)
-
-test(
-  "show_dumb_memory alone asks for the breakdown and draws the outline, with no little bars and no pill: the conversation's fill starts at the bar's start",
-  { options: { show_dumb_memory: true, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const asked = sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    expect(asked.breakdowns).toBe(1)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // The outline from 0.41266 of the 371 pixels, 153.1: its left end at mid height, its upper edge.
-    expect([pixelOf(bar, 154, 14), pixelOf(bar, 300, 5)]).toEqual([BLACK, BLACK])
-    // No little bars: where System prompt's would be, at 14, the fill, which runs from the bar's
-    // start to 32% of the 371 pixels, 118.7, as a bar with no breakdown.
-    expect([14, 100].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE])
-    expect(pixelOf(bar, 125, 14)).toEqual(TRACK)
-    // No pill at 247.5, nor its ring at 242: inside the outline, the bar's empty part.
-    expect([pixelOf(bar, 242, 14), pixelOf(bar, 247, 14)]).toEqual([TRACK, TRACK])
-    expect(await ui.find({ key: 'detail-mark' })).toBe(undefined)
-    await ui.unmount()
-  },
-)
-
-test(
-  'show_autocompact alone asks for the breakdown and draws the pill, with no little bars and no outline',
-  { options: { show_autocompact: true, cell_ratio: '2.34' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const asked = sessionOf(on)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    expect(asked.breakdowns).toBe(1)
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // 667000 of the million is 247.5 of the 371 pixels: the pill from 243.5 to 251.5 in the
-    // buffer's grey, a clear ring at 242 and 252.
-    expect([245, 249].map(x => pixelOf(bar, x, 14))).toEqual([LIGHT, LIGHT])
-    expect([242, 252].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0])
-    expect(await ui.find({ key: 'detail-mark' })).toBeDefined()
-    // No little bars: the fill from the bar's start to 118.7.
-    expect([14, 100].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE])
-    // No outline: where its left end, upper edge and end would run, the bar's empty part.
-    expect([pixelOf(bar, 154, 14), pixelOf(bar, 300, 5), pixelOf(bar, 365, 14)]).toEqual([TRACK, TRACK, TRACK])
-    expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
-    await ui.unmount()
-  },
-)
-
-test('a dumb_zone of 50 starts Dumb Memory at what the session loaded plus half the room left', () => {
-  const zoneAt = (tokens: number) => {
-    const context = { window: 1_000_000, tokens, percent: Math.round(tokens / 10_000) }
-    return rowsOf({ usage: null, context, cacheAt: null, now: NOW, loaded: 100_000 }, settings({ ...SHOWN, dumb_zone: 50 })).at(-1)?.zone
-  }
-  // 100000 + 50% of 900000 is 550000 of the million.
-  expect(zoneAt(550_000)).toEqual({ from: 0.55, isIn: false })
-  expect(zoneAt(550_001)).toEqual({ from: 0.55, isIn: true })
-})
-
-test(
-  'with dumb_zone 0 there is no Dumb Memory: no outline, no words, no warning colour, no line for the pointer',
-  { options: { ...SHOWN, cell_ratio: '2.34', dumb_zone: 0 } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    // Inside the zone at the usual 40, which would start at 412660.
-    sessionOf(on, INSIDE)
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
-    expect(await ui.find({ type: 'Text', text: 'Dumb Memory' })).toBe(undefined)
-    expect(await ui.find({ key: 'zone-over' })).toBe(undefined)
-    expect(await ui.find({ key: 'detail-zone' })).toBe(undefined)
-    const line = (await ui.find({ key: 'detail-1m' })) as Tree | undefined
-    expect(line && textIn(line)).not.toContain('Dumb Memory')
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    // Where the outline would run, upper edge and end, the bar's empty part as ever.
-    expect(pixelOf(bar, 300, 5)).toEqual(TRACK)
-    expect(pixelOf(bar, 300, 14)).toEqual(TRACK)
-    // The fill, 45% of 371 pixels, is not in the warning colour.
-    expect(pixelOf(bar, 100, 14)).not.toEqual([255, 107, 128, 255])
-    await ui.unmount()
-  },
-)
-
-test(
-  'with show_context_kinds off a session no reply has measured is estimated from its breakdown, and its bar still has no little bars',
-  { options: { bar_style: 'squares' } },
+  'a session no reply has measured is estimated from its breakdown, and its bar is one plain fill',
+  { options: { bar_style: 'dots' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     // No percentage in the plain figures: the breakdown is asked for its estimate, 320807 of the million.
@@ -1311,40 +361,16 @@ test(
     const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
     // 32% of 31 cells is 10, one fill from the bar's start.
     expect(row.children.slice(2, 4).map(cell => [textIn(cell), cell.props.color])).toEqual([
-      ['■'.repeat(10), 'claude'],
-      ['□'.repeat(21), 'inactive'],
+      ['⣿'.repeat(10), 'claude'],
+      ['⣀'.repeat(21), 'inactive'],
     ])
     await ui.unmount()
   },
 )
 
-test('a session id lookup that fails once the session is known is no new session: its breakdown is not asked for again', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  let asked = 0
-  let hasId = true
-  on('session.id', () => (hasId ? { value: 'one' } : { deny: 'no id now' }))
-  on('session.model', () => ({ value: 'claude-fable-5-2' }))
-  on('session.usage', ($, e) => {
-    if (!e.breakdown) return usageOf([], CONTEXT)
-    asked += 1
-    return usageOf([], { ...CONTEXT, breakdown: BREAKDOWN })
-  })
-  on('session.authorize', () => ({ deny: 'no account in a test' }))
-  on('store.get', () => ({ value: undefined }))
-  on('store.set', () => ({ value: undefined }))
-  on('ui.render', core)
-  on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(BAND)
-  await clock.advance(2000)
-  expect(asked).toBe(1)
-  hasId = false
-  await clock.advance(5000)
-  expect(asked).toBe(1)
-  await ui.unmount()
-})
 // The cells a drawn node takes across, measured as band.test.tsx measures a row: a row its
 // children's together, a column its widest, a Box at least the width it sets, an Image its
-// columns, a Button with no children its label, each with its margins. A box laid over the others, at an absolute place, takes none
+// columns, each with its margins. A box laid over the others, at an absolute place, takes none
 // of its parent's: it is measured by `overhangs`.
 type Laid = { type?: string; key?: unknown; props?: Record<string, unknown>; children?: (Laid | string)[] }
 const isOver = (node: Laid | string): boolean => typeof node !== 'string' && node.props?.position === 'absolute'
@@ -1356,9 +382,7 @@ const cellsAcross = (node: Laid | string): number => {
   const inner =
     node.type === 'Image'
       ? number(props.columns)
-      : node.type === 'Button' && kids.length === 0
-        ? [...String(props.label ?? '')].length
-        : props.flexDirection === 'column'
+      : props.flexDirection === 'column'
         ? Math.max(0, ...kids.map(cellsAcross))
         : kids.map(cellsAcross).reduce((sum, cells) => sum + cells, 0)
   return number(props.marginLeft) + Math.max(number(props.width), inner) + number(props.marginRight)
@@ -1404,8 +428,7 @@ const picturedBars = async (ui: { findAll: (query: { type: string }) => Promise<
     })
 
 test(
-  'at the narrowest band that draws bars, with little bars, mark, zone and dots on, no row is wider than the band and each bar is a whole picture of 4 cells',
-  { options: SHOWN },
+  'at the narrowest band that draws bars, with dots on, no row is wider than the band and each bar is a whole picture of 4 cells',
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on, INSIDE)
@@ -1414,8 +437,6 @@ test(
     const drawn = (await ui.drawn()) as Laid
     expect(cellsAcross(drawn)).toBeLessThanOrEqual(25)
     expect(overhangs(drawn, 25)).toEqual([])
-    // The auto-compaction pill's box is among what is measured.
-    expect(await ui.find({ key: 'mark-over' })).toBeDefined()
     // 4 cells at the usual 2.2 are 4 times 28 pixels over 2.2 across, 51, and a row of 28 down.
     const bars = await picturedBars(ui)
     expect(bars.map(bar => bar[0])).toContain('bar-1m')
@@ -1425,8 +446,7 @@ test(
 )
 
 test(
-  'at the widest bar, with little bars, mark, zone and dots on, no row is wider than the band and each bar is a whole picture of 255 cells',
-  { options: SHOWN },
+  'at the widest bar, with dots on, no row is wider than the band and each bar is a whole picture of 255 cells',
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on, INSIDE)
@@ -1456,8 +476,8 @@ const textBarCells = (row: Tree): number => {
 }
 
 test(
-  'bars drawn as squares, at the narrowest band that draws them and at the widest bar, keep every row within the band and every bar to its cells',
-  { options: { ...SHOWN, bar_style: 'squares' } },
+  'bars drawn as dots, at the narrowest band that draws them and at the widest bar, keep every row within the band and every bar to its cells',
+  { options: { bar_style: 'dots' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on, INSIDE)
@@ -1482,11 +502,8 @@ test(
 // A bar's 4 cells at a cell shape, and the pixels that makes across: 4 times a row of 28 over
 // the shape. Every line is 2 thick, the air round the bar 2: the bar's rim at its right end is the
 // 2 pixels before its last 2, and what is inside the bar ends 6 short of its end, where a full
-// fill would. Its one little bar runs from 10 to 24 whatever the shape: 6 lines and the gap.
-// The fill after it, a gap on, is never under 8 lines: 28 to 44, and its clear ring to 46.
-// At 2.34 the bar is 48 pixels: the ring cuts the rim, at 44 and 45, away. At 2.8 it is 40: the
-// fill runs on through the rim to the bar's end. So under 5 cells there are no little bars: the
-// fill is one plain fill from the bar's start, and all three hold.
+// fill would. The fill is one plain fill from the bar's start: at 32% it holds inside the rim at
+// all three.
 const NARROW_SHAPES: [string, number, boolean][] = [
   ['2.2', 51, true],
   ['2.34', 48, true],
@@ -1499,7 +516,7 @@ for (const [ratio, width, holds] of NARROW_SHAPES) {
   if (!holds) continue
   test(
     `at its narrowest, 4 cells at a cell shape of ${ratio}, the context bar holds its fill inside its rim`,
-    { options: { ...SHOWN, cell_ratio: ratio } },
+    { options: { cell_ratio: ratio } },
     async ($, on) => {
       const clock = mock.clock(on, { now: NOW })
       sessionOf(on)
@@ -1507,14 +524,12 @@ for (const [ratio, width, holds] of NARROW_SHAPES) {
       await clock.advance(1000)
       const bar = (await imageOf(ui, 'bar-1m'))!
       expect([bar.columns, bar.source.width, bar.source.height]).toEqual([4, width, 28])
-      // What stands first inside the bar: at 10 lies a little bar or the fill at every shape,
-      // short of Dumb Memory's outline, which starts at 16.5 at the narrowest.
-      const piece = pixelOf(bar, 10, 14)
-      expect(piece[3]).toBe(255)
+      // The fill stands first inside the bar, at 10, at every shape.
+      expect(pixelOf(bar, 10, 14)).toEqual(ORANGE)
       // From where the inside ends to the bar's end, at mid height, not a pixel of the fill's
-      // colour or the little bar's, whole or in part.
+      // colour, whole or in part.
       const past = Array.from({ length: 6 }, (_, k) => pixelOf(bar, width - 6 + k, 14))
-      expect(past.filter(colour => sameRgb(colour, ORANGE) || sameRgb(colour, piece))).toEqual([])
+      expect(past.filter(colour => sameRgb(colour, ORANGE))).toEqual([])
       // The rim, whole: both its pixels the empty part's colour.
       expect([width - 4, width - 3].map(x => pixelOf(bar, x, 14))).toEqual([TRACK, TRACK])
       await ui.unmount()
@@ -1524,7 +539,7 @@ for (const [ratio, width, holds] of NARROW_SHAPES) {
 
 test(
   'at its widest, 255 cells, a full context bar ends its fill where the inside ends and draws its rim whole',
-  { options: { show_dumb_memory: false } },
+  {},
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on, { window: 1_000_000, tokens: 1_000_000, percent: 100 })
@@ -1541,128 +556,45 @@ test(
   },
 )
 
-for (const style of ['pill', 'squares']) {
-  test(
-    `inside Dumb Memory, drawn as ${style}, the words stand whole within the band or not at all, shortened to Dumb M… on a bar narrower than they are, at every width from the narrowest to the widest bar`,
-    { options: { ...SHOWN, bar_style: style } },
-    async ($, on) => {
-      const clock = mock.clock(on, { now: NOW })
-      sessionOf(on, INSIDE)
-      const wrong: string[] = []
-      // What the words read at each width of the context bar, in cells.
-      const read: Record<number, string> = {}
-      for (const columns of [...Array.from({ length: 16 }, (_, k) => 25 + k), 295]) {
-        const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: columns } })
-        await clock.advance(1000)
-        const top = (await ui.find({ key: 'top' })) as unknown as Laid | undefined
-        const words = (await ui.find({ key: 'dumb-memory' })) as unknown as Laid | undefined
-        // The bar's cells: the picture's, or the glyphs between the dots either side of it.
-        const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-        const runs = () => row.children.slice(2, row.children.findIndex((kid, k) => k > 1 && textIn(kid) === '·'))
-        const cells = style === 'pill' ? ((await imageOf(ui, 'bar-1m'))?.columns ?? 0) : runs().map(textIn).join('').length
-        // Under 11 cells, the eleven letters' own length, they are seven: "Dumb M" and an ellipsis.
-        const want = cells < 11 ? 'Dumb M…' : 'Dumb Memory'
-        // Where they are drawn they are whole, and the band, the top row with them, ends within its width.
-        const band = cellsAcross((await ui.drawn()) as Laid)
-        // Left out is allowed where there is no room; at the widest bar there is.
-        if (!words || !top) {
-          if (columns === 295) wrong.push(`${columns}: not drawn`)
-        } else {
-          const text = textIn(words as unknown as Tree)
-          read[cells] = text
-          if (text !== want || cellsAcross(words) !== want.length || band > columns)
-            wrong.push(`${columns}: a bar of ${cells}, "${text}" in ${cellsAcross(words)} cells, the band ${band}`)
-        }
-        await ui.unmount()
-      }
-      expect(wrong).toEqual([])
-      expect([read[4], read[10], read[11], read[255]]).toEqual(['Dumb M…', 'Dumb M…', 'Dumb Memory', 'Dumb Memory'])
-    },
-  )
-}
-
-test('on the narrowest bar a press on the shortened words opens the Dumb Memory pane all the same', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  sessionOf(on, INSIDE)
-  const opened: unknown[] = []
-  on('ui.open', ($, e) => {
-    opened.push([e.id, e.title, e.focus, e.closeOnEscape])
-    return { value: { isPlaced: true } }
-  })
-  const ui = await $.ui.mount(NARROWEST)
-  await clock.advance(1000)
-  const words = (await ui.find({ key: 'dumb-memory' })) as unknown as Tree
-  expect(textIn(words)).toBe('Dumb M…')
-  await ui.press({ key: 'dumb-memory' })
-  expect(opened).toEqual([['clawd-context', 'Dumb Memory', true, true]])
-  await ui.unmount()
-})
-
 test(
-  'at the narrowest bar, 4 cells, a session that loaded every kind of memory shows no little bar: one plain fill from the bar\'s start',
-  { options: SHOWN },
+  'at the narrowest bar, 4 cells, the context bar of a session that loaded every kind of memory is one plain fill from the bar\'s start',
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on)
     const ui = await $.ui.mount(NARROWEST)
     await clock.advance(1000)
-    // 51 pixels by 28, at mid height. Under 5 cells there are no little bars: the fill is 32% of
-    // 51, 16.3, shorter than it is high, so a circle 16 across from the bar's inside at 6, to 22.
-    // Dumb Memory's outline starts at 0.41266 of 51, 21.0, and lies over it to 23; the fill's
-    // clear ring ends at 24.
+    // 51 pixels by 28, at mid height. The fill is 32% of
+    // 51, 16.3, shorter than it is high, so a circle 16 across from the bar's inside at 6, to 22,
+    // and its clear ring from 22 to 24.
     const bar = (await imageOf(ui, 'bar-1m'))!
-    expect([10, 15, 20, 22].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE, ORANGE, BLACK])
+    expect([10, 15, 20].map(x => pixelOf(bar, x, 14))).toEqual([ORANGE, ORANGE, ORANGE])
+    expect(pixelOf(bar, 22, 14)[3]).toBe(0)
     expect(pixelOf(bar, 25, 14)).toEqual(TRACK)
-    // Auto-compaction's mark at 0.667 of 51, 34.0: 30 to 38, a clear ring to 40. No fill after it.
-    expect([31, 37].map(x => pixelOf(bar, x, 14))).toEqual([LIGHT, LIGHT])
-    expect([29, 39].map(x => pixelOf(bar, x, 14)[3])).toEqual([0, 0])
-    expect([41, 43].map(x => pixelOf(bar, x, 14))).toEqual([TRACK, TRACK])
-    // No kind's colour anywhere along it.
-    const row = Array.from({ length: 51 }, (_, x) => pixelOf(bar, x, 14))
-    expect(row.filter(colour => sameRgb(colour, GREY) || sameRgb(colour, AMBER))).toEqual([])
+    // After it, on to the rim, and at 0.667 of 51, 34.0, among it: the empty part, nothing over it.
+    expect([29, 31, 34, 37, 39, 41, 43].map(x => pixelOf(bar, x, 14))).toEqual([TRACK, TRACK, TRACK, TRACK, TRACK, TRACK, TRACK])
     await ui.unmount()
   },
 )
 
 test(
-  'at 5 cells a session that loaded every kind of memory shows one little bar for all of it, in the first kind\'s colour',
-  { options: LITTLE }, async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    sessionOf(on)
-    // A column more than the narrowest band: the bar is 5 cells.
-    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 26 } })
-    await clock.advance(1000)
-    // Six kinds want six little bars, more than a third of 5 cells: one stands for them all,
-    // from 10 to 24 whatever the width, in the first kind's grey.
-    const bar = (await imageOf(ui, 'bar-1m'))!
-    expect(bar.columns).toBe(5)
-    expect(pixelOf(bar, 17, 14)).toEqual(GREY)
-    await ui.unmount()
-  },
-)
-
-test(
-  'at the narrowest bar in squares a session that loaded every kind of memory shows no little bar: one plain fill from the bar\'s start',
-  { options: { bar_style: 'squares' } },
+  'at the narrowest bar in dots the context bar of a session that loaded every kind of memory is one plain fill from the bar\'s start',
+  { options: { bar_style: 'dots' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on)
     const ui = await $.ui.mount(NARROWEST)
     await clock.advance(1000)
-    // 4 cells of two steps each: 32% of 8 steps is 2.56, rounded to 3, a whole cell and a
-    // half one from the start; the other two empty. No cell in a kind's colour.
+    // 4 cells of three steps each: 32% of 12 steps is 3.84, rounded to 4, a whole cell and a
+    // third of the next from the start; the other two empty.
     const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
     expect(row.children.slice(2, 4).map(cell => [textIn(cell), cell.props.color])).toEqual([
-      ['■▣', 'claude'],
-      ['□□', 'inactive'],
+      ['⣿⣤', 'claude'],
+      ['⣀⣀', 'inactive'],
     ])
     expect(textIn(row.children[4]!)).toBe('·')
     await ui.unmount()
   },
 )
-
-// Longer than any test runs: a reading that waits this long never answers.
-const NEVER = 600_000
 
 // A session whose breakdowns answer when the test says: the nth ask waits the
 // nth of `waits` on the test's clock, none past the list, and answers the nth
@@ -1687,66 +619,121 @@ const heldSessionOf = (on: On, clock: ReturnType<typeof mock.clock>, waits: numb
   return session
 }
 
-// The context row as drawn in a style of cells, and the colours of the six
-// cells after its label and dot: the little bars' own while a reading is kept.
-const rowOf = async (ui: { find: (query: { key: string }) => Promise<unknown> }) => (await ui.find({ key: 'row-1m' })) as unknown as Tree
-const kindsOf = async (ui: { find: (query: { key: string }) => Promise<unknown> }) =>
-  (await rowOf(ui)).children.slice(2, 8).map(cell => (cell as Tree | undefined)?.props?.color)
+// What a session no reply has measured answers: the window, and no figure of its own.
+const NO_FIGURE = { window: 1_000_000 }
+// A wait no test reaches the end of.
+const NEVER = 600_000
+// The context row's figure as drawn: its percentage, or `--` with none.
+const figureOf = async (ui: { find: (query: { key: string }) => Promise<unknown> }) => {
+  const words = (node: unknown): string =>
+    typeof node === 'string' ? node : ((node as { children?: unknown[] } | undefined)?.children ?? []).map(words).join('')
+  return words(await ui.find({ key: 'row-1m' })).match(/\d+%|--/)?.[0]
+}
 
-test(
-  'a breakdown that never answers lets the band draw, is given up ten seconds after it was asked, and the next pass asks a new one',
-  { options: { ...LITTLE, bar_style: 'squares' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const session = heldSessionOf(on, clock, [NEVER])
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    // The row and its figures, without the little bars.
-    expect(textIn(await rowOf(ui))).toContain('32%')
-    expect(await kindsOf(ui)).not.toEqual(KINDS)
-    await clock.advance(8000)
-    expect(session.asked.length).toBe(1)
-    await clock.advance(4000)
-    expect(session.asked.length).toBe(2)
-    expect(await kindsOf(ui)).toEqual(KINDS)
-    await ui.unmount()
-  },
-)
-
-test('a breakdown that answers after it was given up is dropped: not kept, not drawn', { options: { ...LITTLE, bar_style: 'squares' } }, async ($, on) => {
+test('an estimate the session refuses is asked for again the next second', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
-  // The first answers fifteen seconds on, the one asked after it never.
-  const session = heldSessionOf(on, clock, [15_000, NEVER])
+  let asked = 0
+  on('session.id', () => ({ value: 'one' }))
+  on('session.model', () => ({ value: 'claude-fable-5-2' }))
+  on('session.usage', ($, e) => {
+    if (!e.breakdown) return usageOf([], NO_FIGURE)
+    asked += 1
+    return asked === 1 ? { deny: 'not now' } : usageOf([], { ...NO_FIGURE, breakdown: BREAKDOWN })
+  })
+  on('session.authorize', () => ({ deny: 'no account in a test' }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(PILLS)
-  await clock.advance(16_000)
-  expect(session.asked.length).toBe(2)
-  expect(await kindsOf(ui)).not.toEqual(KINDS)
+  await clock.advance(5000)
+  // The one that failed, and the one that answered: 320807 of the million. None after it.
+  expect(asked).toBe(2)
+  expect(await figureOf(ui)).toBe('32%')
   await ui.unmount()
 })
 
-test("a new session id clears the kept breakdown at once and asks its own; an empty id, a lookup that failed, is no new session", { options: { ...LITTLE, bar_style: 'squares' } }, async ($, on) => {
+test('a session id lookup that fails once the session is known is no new session: its estimate is not asked for again', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  let asked = 0
+  let hasId = true
+  on('session.id', () => (hasId ? { value: 'one' } : { deny: 'no id now' }))
+  on('session.model', () => ({ value: 'claude-fable-5-2' }))
+  on('session.usage', ($, e) => {
+    if (!e.breakdown) return usageOf([], NO_FIGURE)
+    asked += 1
+    return usageOf([], { ...NO_FIGURE, breakdown: BREAKDOWN })
+  })
+  on('session.authorize', () => ({ deny: 'no account in a test' }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(2000)
+  expect(asked).toBe(1)
+  hasId = false
+  await clock.advance(5000)
+  // Still the one estimate, still drawn: 320807 of the million.
+  expect(asked).toBe(1)
+  expect(await figureOf(ui)).toBe('32%')
+  await ui.unmount()
+})
+
+test('an estimate that never answers lets the band draw, is given up ten seconds after it was asked, and the next pass asks a new one', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const session = heldSessionOf(on, clock, [NEVER])
+  session.context = NO_FIGURE
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  // The row, with no figure yet.
+  expect(await figureOf(ui)).toBe('--')
+  await clock.advance(8000)
+  expect(session.asked.length).toBe(1)
+  await clock.advance(4000)
+  // The new one answers at once: 320807 of the million.
+  expect(session.asked.length).toBe(2)
+  expect(await figureOf(ui)).toBe('32%')
+  await ui.unmount()
+})
+
+test('an estimate that answers after it was given up is dropped: not kept, not drawn', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  // The first answers fifteen seconds on, the one asked after it never.
+  const session = heldSessionOf(on, clock, [15_000, NEVER])
+  session.context = NO_FIGURE
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(16_000)
+  expect(session.asked.length).toBe(2)
+  expect(await figureOf(ui)).toBe('--')
+  await ui.unmount()
+})
+
+test('a new session id clears the kept estimate at once and asks its own; an empty id, a lookup that failed, is no new session', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   // The first answers at once, the second never.
   const session = heldSessionOf(on, clock, [0, NEVER])
+  session.context = NO_FIGURE
   const ui = await $.ui.mount(PILLS)
   await clock.advance(1000)
-  expect(await kindsOf(ui)).toEqual(KINDS)
+  expect(await figureOf(ui)).toBe('32%')
   session.id = ''
   await clock.advance(3000)
   expect(session.asked).toEqual(['one'])
-  expect(await kindsOf(ui)).toEqual(KINDS)
+  expect(await figureOf(ui)).toBe('32%')
   // A frame every 400ms: the first pass of the next second is at most that late.
   session.id = 'two'
   await clock.advance(2000)
   expect(session.asked).toEqual(['one', 'two'])
-  expect(await kindsOf(ui)).not.toEqual(KINDS)
+  expect(await figureOf(ui)).toBe('--')
   await ui.unmount()
 })
 
-test("a breakdown asked for one session that answers once the id is another's is dropped, and the new session is asked its own", { options: { ...LITTLE, bar_style: 'squares' } }, async ($, on) => {
+test("an estimate asked for one session that answers once the id is another's is dropped, and the new session is asked its own", async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   // The first answers 2.5s on, the second 2s on.
   const session = heldSessionOf(on, clock, [2500, 2000])
+  session.context = NO_FIGURE
   const ui = await $.ui.mount(PILLS)
   await clock.advance(1500)
   session.id = 'two'
@@ -1754,345 +741,59 @@ test("a breakdown asked for one session that answers once the id is another's is
   // At 2600 the first has answered, and no pass has followed.
   await clock.advance(1100)
   expect(session.asked).toEqual(['one'])
-  expect(await kindsOf(ui)).not.toEqual(KINDS)
+  expect(await figureOf(ui)).toBe('--')
   await clock.advance(4000)
   expect(session.asked).toEqual(['one', 'two'])
-  expect(await kindsOf(ui)).toEqual(KINDS)
+  expect(await figureOf(ui)).toBe('32%')
   await ui.unmount()
 })
 
-// A compaction of the conversation, as /compact starts one, and what it gives.
-// A compaction leaves at least one message.
-const COMPACTION = { trigger: 'manual' as const, instructions: 'the plan', messages: [{ role: 'user' as const, text: 'hello', toolUses: [] }] }
-const COMPACTED = { messages: [{ role: 'user' as const, text: 'a summary', toolUses: [] }], tokensBefore: 320_807, tokensAfter: 20_000 }
-
-test(
-  'a compaction clears the kept breakdown as it starts, asks none while it runs and a new one once it is done, and passes on what it is given and gives',
-  { options: { ...LITTLE, bar_style: 'squares' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const session = heldSessionOf(on, clock, [])
-    const received: unknown[] = []
-    // The engine's compaction, done 65 seconds on.
-    on('session.compact', async ($, e) => {
-      received.push(e)
-      await clock.sleep(65_000)
-      return COMPACTED
-    })
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    expect(await kindsOf(ui)).toEqual(KINDS)
-    const compacted = $.session.compact(COMPACTION)
-    await clock.settle()
-    expect(await kindsOf(ui)).not.toEqual(KINDS)
-    // Past the minute at which a session at rest is asked again.
-    await clock.advance(64_000)
-    expect(session.asked).toEqual(['one'])
-    await clock.advance(3000)
-    expect(await compacted).toEqual(COMPACTED)
-    expect(received).toEqual([COMPACTION])
-    expect(session.asked).toEqual(['one', 'one'])
-    expect(await kindsOf(ui)).toEqual(KINDS)
-    await ui.unmount()
-  },
-)
-
-test('a compaction worked out ahead of time installs nothing: it clears nothing and asks nothing', { options: { ...LITTLE, bar_style: 'squares' } }, async ($, on) => {
+test('a session whose figure the engine gives is asked for no breakdown in a minute, nor when a turn ends', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const session = heldSessionOf(on, clock, [])
-  const AHEAD = { messages: COMPACTED.messages }
-  on('session.compact', async () => {
-    await clock.sleep(5000)
-    return AHEAD
-  })
+  on('turn.complete', () => ({ text: '' }))
   const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const compacted = $.session.compact({ ...COMPACTION, trigger: 'precompute' as const })
-  await clock.settle()
-  expect(await kindsOf(ui)).toEqual(KINDS)
-  await clock.advance(7000)
-  expect(await compacted).toEqual(AHEAD)
-  expect(session.asked).toEqual(['one'])
-  expect(await kindsOf(ui)).toEqual(KINDS)
-  await ui.unmount()
-})
-
-// The engine's spinner, saying a compaction runs or not. Its message is all a
-// mod hears of a compaction where a module above sends session.compact on past it.
-const spinnerSaying = (message: string | null) =>
-  ({
-    plugin: 'clawd-band',
-    surface: 'terminal',
-    component: 'Spinner',
-    props: { word: 'Working', message, suffix: '', mode: 'requesting' },
-  }) as const
-const tellSpinner = async ($: Engine, message: string | null) => (await $.ui.mount(spinnerSaying(message))).unmount()
-// The band while the engine counts work under way, as it does through a compaction.
-const WORKING_PILLS = { ...PILLS, props: { ...PILLS.props, isWorking: true } }
-
-test(
-  'a compaction the spinner tells of asks for the breakdown again once its message ends, and keeps the little bars drawn till then',
-  { options: { ...LITTLE, bar_style: 'squares' } },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const session = heldSessionOf(on, clock, [])
-    const ui = await $.ui.mount(WORKING_PILLS)
-    await clock.advance(1000)
-    expect(session.asked).toEqual(['one'])
-    await tellSpinner($, 'Compacting conversation')
-    await clock.advance(3000)
-    expect(session.asked).toEqual(['one'])
-    expect(await kindsOf(ui)).toEqual(KINDS)
-    await tellSpinner($, null)
-    await clock.advance(1400)
-    expect(session.asked).toEqual(['one', 'one'])
-    await clock.advance(10_000)
-    expect(session.asked).toEqual(['one', 'one'])
-    await ui.unmount()
-  },
-)
-
-test(
-  "a compaction whose end the spinner never tells asks for the breakdown again once no turn runs, and the spinner's next message asks nothing more",
-  { options: LITTLE },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const session = heldSessionOf(on, clock, [])
-    // No turn running: the pose leaves compacting by the once-a-second rule.
-    const ui = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    expect(session.asked).toEqual(['one'])
-    await tellSpinner($, 'Compacting conversation')
-    await clock.advance(2000)
-    expect(session.asked).toEqual(['one', 'one'])
-    // The spinner of a later turn, saying nothing of a compaction: that one was over.
-    await tellSpinner($, null)
-    await clock.advance(10_000)
-    expect(session.asked).toEqual(['one', 'one'])
-    await ui.unmount()
-  },
-)
-
-test('a compaction both session.compact and the spinner tell of asks for the breakdown once, not twice', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const session = heldSessionOf(on, clock, [])
-  on('session.compact', async () => {
-    await clock.sleep(5000)
-    return COMPACTED
-  })
-  const ui = await $.ui.mount(WORKING_PILLS)
-  await clock.advance(1000)
-  const compacted = $.session.compact(COMPACTION)
-  await tellSpinner($, 'Compacting conversation')
-  // The compaction is done, and asked for, while the spinner still says it runs.
-  await clock.advance(6000)
-  expect(await compacted).toEqual(COMPACTED)
-  expect(session.asked).toEqual(['one', 'one'])
-  await tellSpinner($, null)
-  await clock.advance(10_000)
-  expect(session.asked).toEqual(['one', 'one'])
-  await ui.unmount()
-})
-
-test('with the options as they come a compaction the spinner tells of asks for no breakdown', async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const session = heldSessionOf(on, clock, [])
-  const ui = await $.ui.mount(WORKING_PILLS)
-  await clock.advance(1000)
-  await tellSpinner($, 'Compacting conversation')
-  await clock.advance(3000)
-  await tellSpinner($, null)
-  await clock.advance(26_000)
-  expect(session.asked).toEqual([])
-  await ui.unmount()
-})
-
-test("a session whose window changes, a change of model, is asked for its breakdown again, once", { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const session = heldSessionOf(on, clock, [])
-  const ui = await $.ui.mount(PILLS)
-  await clock.advance(3000)
-  expect(session.asked.length).toBe(1)
-  session.context = { window: 200_000, tokens: 20_000, percent: 10 }
-  await clock.advance(2000)
-  expect(session.asked.length).toBe(2)
-  await clock.advance(10_000)
-  expect(session.asked.length).toBe(2)
-  await ui.unmount()
-})
-
-// BREAKDOWN as a session that loaded `loaded` tokens before its conversation
-// reads it: its memory files make up the difference from 21100.
-const loading = (loaded: number) =>
-  ({
-    ...BREAKDOWN,
-    categories: BREAKDOWN.categories.map(row => (row.name === 'Memory files' ? { ...row, tokens: row.tokens + loaded - 21_100 } : row)),
-  }) as SessionContextBreakdown
-
-// Where the band's hidden line and the pane say Dumb Memory starts, and the
-// pane's row of memory files, which follows the latest reading.
-const zoneSaid = async ($: Engine, band: { find: (query: { key: string }) => Promise<unknown> }) => {
-  const line = (await band.find({ key: 'detail-zone' })) as Tree | undefined
-  const pane = await $.ui.mount(ZONE_PANE)
-  const said = (await pane.find({ type: 'Text', text: /^Dumb Memory starts at / })) as unknown as Tree | undefined
-  const memory = (await pane.find({ type: 'Text', text: /^ Memory files / })) as unknown as Tree | undefined
-  await pane.unmount()
-  return [line && textIn(line).split(' · ')[0], said && textIn(said), memory && textIn(memory).replace(/ +/g, ' ')]
-}
-
-test(
-  "Dumb Memory's start is pinned by the session's first reading: what loads later moves the little bars, not the zone",
-  { options: SHOWN },
-  async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const session = heldSessionOf(on, clock, [], [loading(100_000), loading(150_000)])
-    const band = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    // 100k loaded and 40% of the 900k left make 460k.
-    expect(await zoneSaid($, band)).toEqual([
-      'Dumb Memory from 460k',
-      'Dumb Memory starts at 460k (loaded 100k + 40% of the room left):',
-      ' Memory files 82.2k 8.2%',
-    ])
-    // Asked again a minute on: 150k loaded now, which would start it at 490k.
-    await clock.advance(61_000)
-    expect(session.asked).toEqual(['one', 'one'])
-    expect(await zoneSaid($, band)).toEqual([
-      'Dumb Memory from 460k',
-      'Dumb Memory starts at 460k (loaded 100k + 40% of the room left):',
-      ' Memory files 132.2k 13.2%',
-    ])
-    await band.unmount()
-  },
-)
-
-test('a reading dropped because the session moved on, or given up, pins nothing: the next one kept pins', { options: SHOWN }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  // The first, of 100k loaded, answers 2.5s on, once the id is another's; the
-  // second, of 120k, never; the third, of 150k, at once.
-  const session = heldSessionOf(on, clock, [2500, NEVER], [loading(100_000), loading(120_000), loading(150_000)])
-  const band = await $.ui.mount(PILLS)
-  await clock.advance(1500)
-  session.id = 'two'
-  // The first answers at 2600 and is dropped; the second is asked at 3200 and given up at
-  // 13200; the third is asked on the pass of the next second.
-  await clock.advance(13_500)
-  expect(session.asked).toEqual(['one', 'two', 'two'])
-  // 150k loaded and 40% of the 850k left make 490k.
-  expect(await zoneSaid($, band)).toEqual([
-    'Dumb Memory from 490k',
-    'Dumb Memory starts at 490k (loaded 150k + 40% of the room left):',
-    ' Memory files 132.2k 13.2%',
-  ])
-  await band.unmount()
-})
-
-// The mod's pin in $.state: what a module loaded before left there, and each write.
-const pinStoreOf = (on: On, left: { session: string; tokens: number }) => {
-  const store = { value: left, version: 1, written: [] as unknown[] }
-  on('state.get', { key: 'loaded' }, () => ({ value: { value: store.value, version: store.version } }))
-  on('state.set', { key: 'loaded' }, ($, e) => {
-    store.value = e.value as typeof left
-    store.version += 1
-    store.written.push(e.value)
-    return { value: { isSet: true as const, version: store.version } }
-  })
-  return store
-}
-
-for (const { left, said, written } of [
-  // 100k loaded and 40% of the 900k left make 460k.
-  { left: 'one', said: '460k (loaded 100k', written: [] },
-  // 150k loaded and 40% of the 850k left make 490k.
-  { left: 'zero', said: '490k (loaded 150k', written: [{ session: 'one', tokens: 150_000 }] },
-]) {
-  test(`a module loaded again mid-session takes up the pin a module before it left for session ${left}, only if that is its session`, { options: LITTLE }, async ($, on) => {
-    const clock = mock.clock(on, { now: NOW })
-    const store = pinStoreOf(on, { session: left, tokens: 100_000 })
-    heldSessionOf(on, clock, [], [loading(150_000)])
-    const band = await $.ui.mount(PILLS)
-    await clock.advance(1000)
-    expect((await zoneSaid($, band))[1]).toBe(`Dumb Memory starts at ${said} + 40% of the room left):`)
-    // The pin is the session's id and one number, written once a session.
-    expect(store.written).toEqual(written)
-    await band.unmount()
-  })
-}
-
-test('a compaction leaves the pin: what was loaded before the conversation is not what it changes', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const session = heldSessionOf(on, clock, [], [loading(100_000), loading(150_000)])
-  on('session.compact', async () => {
-    await clock.sleep(5000)
-    return COMPACTED
-  })
-  const band = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const compacted = $.session.compact(COMPACTION)
-  await clock.advance(7000)
-  await compacted
-  expect(session.asked).toEqual(['one', 'one'])
-  // 100k loaded and 40% of the 900k left make 460k, as before it.
-  expect((await zoneSaid($, band))[1]).toBe('Dumb Memory starts at 460k (loaded 100k + 40% of the room left):')
-  await band.unmount()
-})
-
-test('a new session id, a /clear, pins anew', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const session = heldSessionOf(on, clock, [], [loading(100_000), loading(200_000)])
-  const band = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  session.id = 'two'
-  await clock.advance(2000)
-  expect(session.asked).toEqual(['one', 'two'])
-  // 200k loaded and 40% of the 800k left make 520k.
-  expect((await zoneSaid($, band))[1]).toBe('Dumb Memory starts at 520k (loaded 200k + 40% of the room left):')
-  await band.unmount()
-})
-
-test('a breakdown with no row named Messages pins all it has in use, and the debug log says so once a session, in fixed words', { options: LITTLE }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW })
-  const unnamed = {
-    ...BREAKDOWN,
-    categories: BREAKDOWN.categories.map(row => (row.name === 'Messages' ? { ...row, name: 'Conversation' } : row)),
-  } as SessionContextBreakdown
-  const session = heldSessionOf(on, clock, [], [unnamed, unnamed])
-  const logged: unknown[] = []
-  on('ui.log', ($, e) => {
-    // The account's own line aside: a test has no account.
-    if (!e.text.startsWith('clawd-band: account usage')) logged.push([e.text, e.to])
-    return { value: undefined }
-  })
-  const band = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  // Asked again a minute on, with no row named Messages still.
   await clock.advance(61_000)
-  expect(session.asked).toEqual(['one', 'one'])
-  // 320807 in use and 40% of the 679193 left make 592484.
-  expect((await zoneSaid($, band))[1]).toBe('Dumb Memory starts at 592.5k (loaded 320.8k + 40% of the room left):')
-  expect(logged).toEqual([['clawd-band: the context breakdown has no row named Messages: Dumb Memory counts all of it in use as loaded', 'debug']])
-  await band.unmount()
+  expect(session.asked).toEqual([])
+  await $.turn.complete({ answer: '', durationMs: 0, isAborted: false, turnId: 'turn-1', reason: 'answer' })
+  await clock.advance(3000)
+  expect(session.asked).toEqual([])
+  // The engine's own figure: 32 of the hundred.
+  expect(await figureOf(ui)).toBe('32%')
+  await ui.unmount()
 })
 
-test("a subagent's own compaction changes nothing of the conversation's context: it clears nothing and asks nothing", { options: { ...LITTLE, bar_style: 'squares' } }, async ($, on) => {
+test('a session with no figure of its own is asked for its estimate once, and not again as the minutes pass', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const session = heldSessionOf(on, clock, [])
-  const received: unknown[] = []
-  on('session.compact', async ($, e) => {
-    received.push(e)
-    await clock.sleep(5000)
-    return COMPACTED
-  })
+  session.context = NO_FIGURE
   const ui = await $.ui.mount(PILLS)
-  await clock.advance(1000)
-  const subagents = { ...COMPACTION, agentId: 'agent-1' }
-  const compacted = $.session.compact(subagents)
-  await clock.settle()
-  expect(await kindsOf(ui)).toEqual(KINDS)
-  await clock.advance(7000)
-  expect(await compacted).toEqual(COMPACTED)
-  expect(received).toEqual([subagents])
+  await clock.advance(180_000)
   expect(session.asked).toEqual(['one'])
-  expect(await kindsOf(ui)).toEqual(KINDS)
+  expect(await figureOf(ui)).toBe('32%')
+  await ui.unmount()
+})
+
+test("a session's estimate is dropped once the engine gives its figure, and asked for once again when the figure goes missing", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  // The first estimate is 320807 of the million, the second 450000.
+  const session = heldSessionOf(on, clock, [], [BREAKDOWN, { ...BREAKDOWN, totalTokens: 450_000 }])
+  session.context = NO_FIGURE
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(3000)
+  expect(session.asked).toEqual(['one'])
+  expect(await figureOf(ui)).toBe('32%')
+  // The engine's own figure arrives: it is drawn, and nothing is asked.
+  session.context = { window: 1_000_000, tokens: 600_000, percent: 60 }
+  await clock.advance(3000)
+  expect(session.asked).toEqual(['one'])
+  expect(await figureOf(ui)).toBe('60%')
+  // It goes missing again: one more estimate, within the first pass after.
+  session.context = NO_FIGURE
+  await clock.advance(1400)
+  expect(session.asked).toEqual(['one', 'one'])
+  expect(await figureOf(ui)).toBe('45%')
+  await clock.advance(5000)
+  expect(session.asked).toEqual(['one', 'one'])
   await ui.unmount()
 })

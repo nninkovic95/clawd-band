@@ -3,17 +3,13 @@ import type { PluginOptions } from 'claude-code'
 import type { Rgb, Rgba } from './picture'
 import { CLAUDE_ORANGE, toHex } from './sprite'
 
-// A bar's look: what one cell shows at each step from empty to full, so a
-// cell of `circles` fills by quarters.
+// A bar's look: what one cell shows at each step from empty to full.
 export type BarStyle = {
   steps: readonly [string, string, ...string[]]
   // What the first and the last cell show in place of their step, if anything.
   caps?: readonly [string, string]
   // Drawn as a picture where the terminal draws pictures; the steps are its look in text.
   isPicture?: true
-  // Each glyph is drawn two cells wide, a blank after it: a bar is half as many of them
-  // as it has cells, and each half of one is a cell and a step.
-  wide?: true
 }
 
 // Solid on both sides, told apart by colour alone, so a theme sets both; the ends
@@ -24,16 +20,11 @@ export const BAR_STYLES = {
   // A picture of a pill: an edge, the fill inside it, hairlines between days.
   pill: { ...BLOCKS, isPicture: true },
   blocks: BLOCKS,
-  // A Nerd Font's circles, which a terminal draws over the blank that follows: an
-  // outline, the left half filled, and whole.
-  circles: { steps: ['\u{F0766}', '\u{F1396}', '\u{F0765}'], wide: true },
   dots: { steps: ['⣀', '⣤', '⣶', '⣿'] },
-  squares: { steps: ['□', '▣', '■'] },
-  line: { steps: ['─', '╾', '━'] },
 } as const satisfies Record<string, BarStyle>
 
 type BarStyleName = keyof typeof BAR_STYLES
-const BAR_STYLE_NAMES: readonly [BarStyleName, ...BarStyleName[]] = ['pill', 'blocks', 'circles', 'dots', 'squares', 'line']
+const BAR_STYLE_NAMES: readonly [BarStyleName, ...BarStyleName[]] = ['pill', 'blocks', 'dots']
 
 // A colour in both forms: what a Text takes (a theme key, a colour name or
 // hex) and what a picture is drawn in.
@@ -59,12 +50,6 @@ export type Settings = {
   showWeekly: boolean
   showFiveHour: boolean
   showContext: boolean
-  // Dumb Memory's start: the share, in percent, of the room left after what the session loaded.
-  dumbZone: number
-  // The context bar's three extras, each off unless turned on.
-  showContextKinds: boolean
-  showDumbMemory: boolean
-  showAutocompact: boolean
   keepSpinner: boolean
   // Each bar's own colour, at any level.
   weeklyColor: Paint
@@ -98,10 +83,6 @@ const ratioOf = (value: unknown): number => {
   return Number.isFinite(ratio) ? Math.max(RATIO.least, Math.min(RATIO.most, ratio)) : RATIO.usual
 }
 
-// Dumb Memory's start: a share in percent, so a number from 0 to 100; anything else is the
-// rule of thumb, two fifths.
-const zoneShareOf = (value: unknown): number => (typeof value === 'number' && value >= 0 && value <= 100 ? value : 40)
-
 // What a picture is drawn in for a theme key or a colour name: a mod is not
 // told a theme's values, so these are the dark theme's.
 const DARK = {
@@ -114,21 +95,9 @@ const DARK = {
   warning: [255, 193, 7],
   success: [78, 186, 101],
   blue: [95, 160, 230],
-  // The keys /context colours its rows in, beyond those above.
-  promptBorder: [136, 136, 136],
-  cyan_FOR_SUBAGENTS_ONLY: [8, 145, 178],
-  green_FOR_SUBAGENTS_ONLY: [22, 163, 74],
-  purple_FOR_SUBAGENTS_ONLY: [130, 125, 189],
 } as const satisfies Record<string, Readonly<Rgb>>
 
 const isKnown = (key: string): key is keyof typeof DARK => Object.hasOwn(DARK, key)
-
-// A theme key as the engine hands one over (a row of /context): a Text takes it as it is,
-// and a picture draws a key it does not know in the empty part's grey.
-export const themePaint = (key: string): Paint => {
-  const [red, green, blue] = DARK[isKnown(key) ? key : 'inactive']
-  return { text: key, rgba: [red, green, blue, 255] }
-}
 
 const SOLID = 255
 // A bar's empty part lets the terminal show through: two fifths solid.
@@ -147,12 +116,13 @@ const paint = (value: unknown, key: keyof typeof DARK, usual = SOLID): Paint => 
   return { text: hex ? toHex(rgb) : text, rgba: [rgb[0], rgb[1], rgb[2], alpha] }
 }
 
-// One of an option's choices by name, the first when it is none of them;
-// `random` picks among them each time the module loads.
-const oneOf = <T extends string>(value: unknown, choices: readonly [T, ...T[]], random: () => number): T => {
-  if (value === 'random') return choices[Math.floor(random() * choices.length)] ?? choices[0]
-  return choices.find(choice => choice === value) ?? choices[0]
-}
+// One of an option's choices by name, the first when it is none of them.
+const oneOf = <T extends string>(value: unknown, choices: readonly [T, ...T[]]): T =>
+  choices.find(choice => choice === value) ?? choices[0]
+
+// One of the choices by chance, each time the module loads.
+const anyOf = <T extends string>(choices: readonly [T, ...T[]], random: () => number): T =>
+  choices[Math.floor(random() * choices.length)] ?? choices[0]
 
 export const settings = (options: PluginOptions, random: () => number = Math.random): Settings => {
   const parsed = typeof options.sprite_color === 'string' ? toRgb(options.sprite_color) : null
@@ -162,8 +132,8 @@ export const settings = (options: PluginOptions, random: () => number = Math.ran
     // A random Clawd is one of the two that draw.
     sprite:
       options.sprite === 'random'
-        ? oneOf('random', ['picture', 'text'], random)
-        : oneOf(options.sprite, ['picture', 'text', 'off'], random),
+        ? anyOf(['picture', 'text'], random)
+        : oneOf(options.sprite, ['picture', 'text', 'off']),
     // Clawd drawn in text: the theme's own Claude colour unless the sprite
     // has one of its own.
     spriteColor: custom ? toHex(custom) : 'claude',
@@ -172,14 +142,10 @@ export const settings = (options: PluginOptions, random: () => number = Math.ran
     animate: options.animate !== false,
     randomPoses: options.random_poses !== false,
     turnEndings: options.turn_endings !== false,
-    barStyle: BAR_STYLES[oneOf(options.bar_style, BAR_STYLE_NAMES, random)],
+    barStyle: BAR_STYLES[oneOf(options.bar_style, BAR_STYLE_NAMES)],
     showWeekly: options.show_weekly !== false,
     showFiveHour: options.show_five_hour !== false,
     showContext: options.show_context !== false,
-    dumbZone: zoneShareOf(options.dumb_zone),
-    showContextKinds: options.show_context_kinds === true,
-    showDumbMemory: options.show_dumb_memory === true,
-    showAutocompact: options.show_autocompact === true,
     keepSpinner: options.keep_spinner === true,
     // Not `permission`: some themes draw it the same blue as `suggestion`.
     weeklyColor: paint(options.bar_color_weekly, 'autoAccept'),

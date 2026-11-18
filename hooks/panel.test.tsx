@@ -126,3 +126,16 @@ test('a change the settings menu refuses is said in a toast', async ($, on) => {
   expect(toasts).toEqual(['Animate Clawd: set by your organization'])
   await ui.unmount()
 })
+
+test('a saved bar style the choices no longer hold is drawn, and its row still listed', async ($, on) => {
+  // A style an earlier version offered, saved before it was taken out.
+  const rows = ROWS.map(row => (row.key === 'clawd-band.bar_style' ? { ...row, value: 'circles' } : row))
+  on('config.list', () => ({ value: rows }))
+  const ui = await $.ui.mount(PANE)
+  const select = await ui.find({ key: 'clawd-band.bar_style' })
+  expect([select?.type, select?.props.label]).toEqual(['Select', 'Bar style'])
+  expect(select?.props.options).toEqual([{ value: 'pill' }, { value: 'blocks' }, { value: 'dots' }])
+  // The rows round it are drawn as ever.
+  expect((await ui.find({ key: 'clawd-band.cell_ratio' }))?.props.value).toBe('2.34')
+  await ui.unmount()
+})

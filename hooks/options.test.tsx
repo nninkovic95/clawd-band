@@ -59,35 +59,34 @@ test('a bar style fills its cells one after another, step by step', async () => 
     { text: '⣿⣤', part: 'filled' },
     { text: '⣀⣀', part: 'empty' },
   ])
-  expect(barRuns(4, 100, BAR_STYLES.squares)).toEqual([{ text: '■■■■', part: 'filled' }])
-  expect(barRuns(2, 25, BAR_STYLES.line)).toEqual([
-    { text: '╾', part: 'filled' },
-    { text: '─', part: 'empty' },
-  ])
   expect(barRuns(3, 150, BAR_STYLES.dots)).toEqual([{ text: '⣿⣿⣿', part: 'filled' }])
 })
 
 test('every style marks the days between them', async () => {
-  expect(barRuns(5, 0, BAR_STYLES.squares, 2)).toEqual([{ text: '□□ □□', part: 'empty' }])
-  expect(barRuns(5, 100, BAR_STYLES.squares, 2)).toEqual([{ text: '■■ ■■', part: 'filled' }])
-  // Circles too: nine cells are a gap and four circles of two cells, two a day.
-  const [OPEN, WHOLE] = ['\u{F0766}', '\u{F0765}']
-  expect(barRuns(9, 0, BAR_STYLES.circles, 2).map(run => run.text).join('')).toBe(`${OPEN} ${OPEN}  ${OPEN} ${OPEN} `)
-  expect(barRuns(9, 100, BAR_STYLES.circles, 2).map(run => run.text).join('')).toBe(`${WHOLE} ${WHOLE}  ${WHOLE} ${WHOLE} `)
+  // Five cells in two days: four cells of the days and a gap between them.
+  expect(barRuns(5, 0, BAR_STYLES.dots, 2)).toEqual([{ text: '⣀⣀ ⣀⣀', part: 'empty' }])
+  expect(barRuns(5, 100, BAR_STYLES.dots, 2)).toEqual([{ text: '⣿⣿ ⣿⣿', part: 'filled' }])
 })
 
-test('bar_style and sprite take one of their choices, or a random one', async () => {
+test('bar_style takes one of its choices, sprite one of its or a random one', async () => {
   expect(settings({}).barStyle).toBe(BAR_STYLES.pill)
-  expect(settings({ bar_style: 'circles' }).barStyle).toBe(BAR_STYLES.circles)
+  expect(settings({ bar_style: 'dots' }).barStyle).toBe(BAR_STYLES.dots)
   expect(settings({ bar_style: 'stripes' }).barStyle).toBe(BAR_STYLES.pill)
-  expect(settings({ bar_style: 'random' }, () => 0).barStyle).toBe(BAR_STYLES.pill)
-  expect(settings({ bar_style: 'random' }, () => 0.99).barStyle).toBe(BAR_STYLES.line)
   expect(settings({}).sprite).toBe('picture')
   expect(settings({ sprite: 'off' }).sprite).toBe('off')
   expect(settings({ sprite: 'huge' }).sprite).toBe('picture')
   // A random Clawd is never no Clawd.
   expect(settings({ sprite: 'random' }, () => 0).sprite).toBe('picture')
   expect(settings({ sprite: 'random' }, () => 0.99).sprite).toBe('text')
+})
+
+test('a bar_style no longer offered, random or one that never was draws the pill', async () => {
+  // Names a setting saved by an earlier version may still hold, and one no version had.
+  const gone = ['circles', 'squares', 'line', 'random', 'stripes']
+  const nameOf = (style: object) => Object.entries(BAR_STYLES).find(([, known]) => known === style)?.[0]
+  expect(gone.map(name => nameOf(settings({ bar_style: name }).barStyle))).toEqual(gone.map(() => 'pill'))
+  // A roll that would pick the last of the styles picks nothing: random is no style.
+  expect(gone.map(name => nameOf(settings({ bar_style: name }, () => 0.99).barStyle))).toEqual(gone.map(() => 'pill'))
 })
 
 test('the rows are the ones left on, top to bottom', async () => {
@@ -141,13 +140,14 @@ test('before its first reply a session shows the context the engine estimates', 
   await ui.unmount()
 })
 
-test('bar_style draws the bars in that style', { options: { bar_style: 'circles' } }, async ($, on) => {
+test('bar_style draws the bars in that style', { options: { bar_style: 'dots' } }, async ($, on) => {
   mock.clock(on, { now: NOW })
   on('ui.render', core)
   const ui = await $.ui.mount(BAND)
-  // An empty circle: a Nerd Font's outline, as the round ends of `blocks` are a Nerd Font's.
-  expect(await ui.find({ type: 'Text', text: '\u{F0766}' })).toBeDefined()
-  expect(JSON.stringify(await ui.find({ key: 'bars' }))).not.toContain('█')
+  // An empty cell of dots: its bottom row.
+  const bars = JSON.stringify(await ui.find({ key: 'bars' }))
+  expect(bars).toContain('⣀')
+  expect(bars).not.toContain('█')
   await ui.unmount()
 })
 
@@ -258,36 +258,12 @@ test('the motion options are on unless turned off', async () => {
   expect([off.animate, off.randomPoses, off.turnEndings]).toEqual([false, false, false])
 })
 
-test('the little bars of what fills the context are off unless show_context_kinds is true', async () => {
-  expect(settings({}).showContextKinds).toBe(false)
-  expect(settings({ show_context_kinds: true }).showContextKinds).toBe(true)
-  expect(settings({ show_context_kinds: false }).showContextKinds).toBe(false)
-  // A value that is no boolean leaves them off.
-  for (const value of ['true', 1, 'yes']) expect(settings({ show_context_kinds: value }).showContextKinds).toBe(false)
-})
-
-test('Dumb Memory and the auto-compaction pill are off unless their option is true', async () => {
-  const shown = (options: Parameters<typeof settings>[0]) => {
-    const { showDumbMemory, showAutocompact } = settings(options)
-    return [showDumbMemory, showAutocompact]
-  }
-  expect(shown({})).toEqual([false, false])
-  expect(shown({ show_dumb_memory: true, show_autocompact: true })).toEqual([true, true])
-  expect(shown({ show_dumb_memory: true })).toEqual([true, false])
-  expect(shown({ show_autocompact: true })).toEqual([false, true])
-  // A value that is no boolean leaves them off.
-  for (const value of ['true', 1, 'yes']) {
-    expect(shown({ show_dumb_memory: value, show_autocompact: value })).toEqual([false, false])
-  }
-})
-
 test(
-  'a band with no options draws the context bar inside Dumb Memory with no outline, no words, no auto-compaction pill, its fill in its own colour',
+  'a band with no options draws the context bar at 450k of 1M, its fill in its own colour',
   { options: { cell_ratio: '2.34' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
-    // 450000 of a million, nothing loaded before the conversation: past where Dumb Memory would
-    // start at the usual 40, 400000; auto-compaction runs at 667000.
+    // 450000 of a million, nothing loaded before the conversation; the session compacts itself at 667000.
     const breakdown = {
       categories: [{ name: 'Messages', tokens: 450_000, color: 'purple_FOR_SUBAGENTS_ONLY', isDeferred: false, kind: 'used' }],
       totalTokens: 450_000,
@@ -307,14 +283,11 @@ test(
     // 71 columns give a context bar of 31 cells: at 2.34, a picture 371 pixels by 28.
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 71 } })
     await clock.advance(1000)
-    expect(await ui.find({ key: 'dumb-memory' })).toBe(undefined)
-    expect(await ui.find({ type: 'Text', text: 'Dumb Memory' })).toBe(undefined)
-    expect(await ui.find({ key: 'zone-over' })).toBe(undefined)
     const bar = (await imageOf(ui, 'bar-1m'))!
     const TRACK = [153, 153, 153, 102]
-    // Where the outline's upper edge and its end would run, the bar's empty part.
+    // Along to the bar's end, its empty part.
     expect([pixelOf(bar, 300, 5), pixelOf(bar, 365, 14)]).toEqual([TRACK, TRACK])
-    // Two thirds along, 247.5 of the 371 pixels, and its ring at 242: the empty part, no pill.
+    // Two thirds along, 247.5 of the 371 pixels, and at 242: the empty part.
     expect([pixelOf(bar, 242, 14), pixelOf(bar, 247, 14)]).toEqual([TRACK, TRACK])
     // The fill, to 45% of the bar less its inset, 161: one plain fill in Claude's orange.
     const ORANGE = [215, 119, 87, 255]
@@ -353,8 +326,8 @@ test('turn_endings off sends the end of a turn straight to rest', { options: { t
   expect(poses).toEqual(['waiting', 'idle'])
 })
 
-test('dumb_zone is where Dumb Memory starts, in percent of the room left: 40 unless it is a number from 0 to 100', async () => {
-  expect(settings({}).dumbZone).toBe(40)
-  expect([0, 50, 12.5, 100].map(share => settings({ dumb_zone: share }).dumbZone)).toEqual([0, 50, 12.5, 100])
-  expect([-1, 101, 'many', '', Number.NaN, true].map(share => settings({ dumb_zone: share }).dumbZone)).toEqual([40, 40, 40, 40, 40, 40])
+test('a saved value of a removed option changes nothing: show_dumb_memory, dumb_zone, show_autocompact and show_context_kinds are no options', () => {
+  expect(settings({ show_dumb_memory: true, dumb_zone: 10 })).toEqual(settings({}))
+  expect(settings({ show_autocompact: true })).toEqual(settings({}))
+  expect(settings({ show_context_kinds: true })).toEqual(settings({}))
 })
