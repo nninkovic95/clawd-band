@@ -3,6 +3,13 @@ import type { ConfigRow, ConfigValue, EngineInterface, On } from 'claude-code'
 const MOD = 'clawd-band'
 const COMMAND = 'clawd'
 const PANE = 'clawd-settings'
+// The id /plugin knows the mod by. The bare name is refused, and the
+// marketplace part is not to be had from inside the mod.
+const PLUGIN_ID = 'clawd-band@clawd-band'
+
+function openPane($: EngineInterface) {
+  return $.ui.open({ id: PANE, title: 'Clawd', focus: true, closeOnEscape: true })
+}
 
 // Offers /clawd. A command lasts as long as the process, and a resumed
 // session loads the module without a session.start, so the first hook to run
@@ -33,7 +40,15 @@ async function toggle($: EngineInterface, row: ConfigRow) {
 // manifest is here with no word of it in this file.
 export const settingsPanel = (on: On) => {
   on('command.run', { command: COMMAND }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Clawd', focus: true, closeOnEscape: true })
+    // The plugin's own configure options come first; the pane is for where
+    // they will not open. Asked after this hook returns, as a command run
+    // inside a hook the turn waits on can be rejected.
+    $.clock.after(0, async () => {
+      const opened = await $.command
+        .run({ command: 'plugin', args: `configure ${PLUGIN_ID}` })
+        .then(answer => answer.text === undefined, () => false)
+      if (!opened) await openPane($)
+    })
     return {}
   })
 

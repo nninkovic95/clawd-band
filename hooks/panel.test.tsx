@@ -19,15 +19,38 @@ test('the mod offers /clawd, once, whichever of its hooks runs first', async ($,
   await ui.unmount()
 })
 
-test('/clawd opens the settings pane and hands it the keyboard', async ($, on) => {
+// The person typed /clawd in a terminal 100 columns wide.
+const typed = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
+
+test("/clawd opens the plugin's configure options, and no pane", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const ran: unknown[] = []
   const opened: unknown[] = []
+  on('command.run', { command: 'plugin' }, ($, e) => {
+    ran.push([e.command, e.args])
+    return {}
+  })
+  on('ui.open', ($, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  const answer = await $.command.run({ command: 'clawd', args: '', ...typed })
+  await clock.advance(10)
+  expect(ran).toEqual([['plugin', 'configure clawd-band@clawd-band']])
+  expect(opened).toEqual([])
+  expect(answer.text).toBe(undefined)
+})
+
+test('/clawd opens the settings pane and hands it the keyboard when configure options will not open', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const opened: unknown[] = []
+  on('command.run', { command: 'plugin' }, () => ({ text: 'Unknown plugin' }))
   on('ui.open', ($, e) => {
     opened.push([e.id, e.title, e.focus, e.closeOnEscape])
     return { value: { isPlaced: true } }
   })
-  // The person typed /clawd in a terminal 100 columns wide.
-  const typed = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
   const answer = await $.command.run({ command: 'clawd', args: '', ...typed })
+  await clock.advance(10)
   expect(opened).toEqual([['clawd-settings', 'Clawd', true, true]])
   // A panel prints nothing in the transcript.
   expect(answer.text).toBe(undefined)
