@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionContextUsage, Timer, TurnCompleteReason } from 'claude-code'
 
 import type { Model, Pose } from '../types'
-import { band, fit, PROBE, rowsOf } from './band'
+import { band, fit, rowsOf } from './band'
 import { estimatedTokens, syncContext } from './context'
 import type { Clawd } from './band'
 import { poser, RULES } from './pose'
@@ -12,8 +12,10 @@ import { boxPixels } from './picture'
 import type { Picture } from './picture'
 import { settings } from './settings'
 import type { Settings } from './settings'
+import { terminal } from './terminal'
+import type { Screen } from './terminal'
 import { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, SCENES, textIn } from './sprite'
-import type { Draw, Scene, TextFrame } from './sprite'
+import type { Draw, Scene } from './sprite'
 import { field, resetExpired, setUsage, syncUsage } from './usage'
 
 const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
@@ -113,14 +115,6 @@ const live: {
   isCompacting: boolean
   isWorking: boolean
   bandId: string | null
-  // Whether the terminal draws pictures, as far as the last probes say.
-  pictures: boolean
-  // The form the band last drew Clawd in: it picks what fits its width.
-  form: 'picture' | 'text' | null
-  drawn: TextFrame | null
-  // The picture last sent to the band, so an unchanged frame is not sent again.
-  sent: Picture | null
-  refusals: number
   sessionId: string | null
   isModelLoaded: boolean
   timer: Timer | null
@@ -132,11 +126,6 @@ const live: {
   isCompacting: false,
   isWorking: false,
   bandId: null,
-  pictures: true,
-  form: null,
-  drawn: null,
-  sent: null,
-  refusals: 0,
   sessionId: null,
   isModelLoaded: false,
   timer: null,
@@ -175,48 +164,22 @@ async function settled<T>($: EngineInterface, change: () => T): Promise<T> {
 // The conversation takes a pose.
 const ask = ($: EngineInterface, pose: Pose) => settled($, () => posing.want(pose))
 
-// How the engine words its refusal to swap a picture the terminal cannot draw:
-// a background session, or a terminal without kitty graphics.
-const NO_PICTURE = 'the Image draws its alt here'
-const REFUSALS = 3 // in a row: the first swaps can come before the terminal has answered
+// The pictures the band sends, and what it knows of the terminal drawing them;
+// a reload starts it over.
+const screen = terminal()
 
-// Asks the terminal whether it draws pictures, by a swap of the band's
-// one-cell picture: once a second, and each tick while refusals are being
-// counted. A few refusals in a row and the band draws in text; one swap taken
-// and it draws pictures again, so a terminal that comes back from where it
-// could draw none gets its pictures back.
-async function probe($: EngineInterface, isNewSecond: boolean) {
-  if (!live.bandId || !wantsPictures()) return
-  const isCounting = live.pictures && live.refusals > 0
-  if (!isNewSecond && !isCounting) return
-  const answer = await $.ui.blit({ requestId: live.bandId, key: 'probe', source: PROBE }).catch(() => null)
-  // A band taken down between draws refuses too, which says nothing of pictures.
-  if (answer === null || (answer.deny !== undefined && !answer.deny.includes(NO_PICTURE))) return
-  live.refusals = answer.deny === undefined ? 0 : live.refusals + 1
-  const pictures = live.refusals < REFUSALS
-  if (pictures === live.pictures) return
-  live.pictures = pictures
-  // The band is drawn anew in the other form: no picture of the old one counts as sent.
-  live.sent = null
-  $.ui.invalidate('ui.render')
-}
+// A picture is probed where the terminal might not draw it; the band asks it each tick.
+// The engine's screen, spelled where `$` is called: the engine follows `$` no further.
+const screenOf = ($: EngineInterface): Screen => ({
+  blit: args => $.ui.blit(args),
+  invalidate: name => $.ui.invalidate(name),
+})
 
-// The next frame of the pose: a picture swapped in place, or, where Clawd is
-// text, a redraw once the text on screen is no longer the frame to show.
-async function showFrame($: EngineInterface) {
-  if (!live.bandId) return
-  if (live.form === 'text') {
-    if (drawn(drawText) !== live.drawn) $.ui.invalidate('ui.render')
-    return
-  }
-  if (live.form !== 'picture') return
-  const source = drawn(drawPicture)
-  if (source === live.sent) return
-  // A band taken down between draws refuses too; the next render places it again.
-  const answer = await $.ui.blit({ requestId: live.bandId, key: 'clawd', source }).catch(() => null)
-  // Only a picture the band took counts as sent: one it refused goes again.
-  live.sent = answer !== null && answer.deny === undefined ? source : null
-}
+const probe = ($: EngineInterface, isNewSecond: boolean) =>
+  live.bandId && wantsPictures() ? screen.probe(screenOf($), live.bandId, isNewSecond) : undefined
+
+const showFrame = ($: EngineInterface) =>
+  live.bandId ? screen.showFrame(screenOf($), live.bandId, { picture: () => drawn(drawPicture), text: () => drawn(drawText) }) : undefined
 
 // The context window's fill. Before a session's first reply the engine has no
 // figure for it, so the band shows the estimate /context would make, which
@@ -440,7 +403,7 @@ export const register: Register = (on, options) => {
     const rows = await rowsAt($, now)
     live.rowsDrawn = JSON.stringify(rows)
 
-    const pictures = wantsPictures() ? live.pictures : null
+    const pictures = wantsPictures() ? screen.draws : null
     const text = drawn(drawText)
     // No picture where the terminal draws none, or the person asked for text.
     const picture = pictures && config.sprite === 'picture' ? { source: drawn(drawPicture), alt: SCENES[scene()].alt } : null
@@ -455,8 +418,8 @@ export const register: Register = (on, options) => {
       model: config.showModel ? { name, effort: model.effort } : null,
       rows,
     }
-    live.form = fit(view)?.form ?? null
-    live.drawn = live.form === 'text' ? text : null
+    const form = fit(view)?.form ?? null
+    screen.drew(form, text)
     return band(view, config, $.ui.resolve(e))
   })
 }

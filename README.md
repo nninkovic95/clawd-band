@@ -6,7 +6,7 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 
 [![clawd-band's listing on mods4claude](https://mods4claude.com/badge/nninkovic95-clawd-band.svg)](https://mods4claude.com/mods/nninkovic95-clawd-band)
 
-**Status:** in active development by one maintainer. This page describes version 0.4.1, tested on Claude Code 2.1.325. The mod API it is built on is early access, so a Claude Code update can break it.
+**Status:** in active development by one maintainer. This page describes version 0.4.2, tested on Claude Code 2.1.325. The mod API it is built on is early access, so a Claude Code update can break it.
 
 ## The band
 
