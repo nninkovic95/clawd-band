@@ -2,7 +2,7 @@ import type { Hook, On, SessionContextUsage, SessionRateLimit } from 'claude-cod
 import { expect, mock, test } from 'claude-code/testing'
 
 import { barRuns, cacheCountdown, countdown, loadingRuns, windowLabel } from './band'
-import { poseFor, shortModel, shownPose, withoutEffort } from './register'
+import { shortModel, shownPose, withoutEffort } from './register'
 import { BAR_STYLES, settings } from './settings'
 import {
   CLAUDE_ORANGE,
@@ -56,18 +56,6 @@ const core: Hook<'ui.render'> = ($, e) => {
   const { Box } = $.ui.resolve(e)
   return <Box />
 }
-
-test('tool names pick the pose', async () => {
-  expect(poseFor('AskUserQuestion')).toBe('questioning')
-  expect(poseFor('mcp__claude_ai_Claude_Docs__read')).toBe('reading')
-  expect(poseFor('mcp__claude_ai_Claude_Docs__update')).toBe('writing')
-  expect(poseFor('Grep')).toBe('reading')
-  expect(poseFor('Edit')).toBe('writing')
-  expect(poseFor('Bash')).toBe('running')
-  expect(poseFor('WebSearch')).toBe('searching')
-  expect(poseFor('Agent')).toBe('delegating')
-  expect(poseFor('TodoWrite')).toBe('working')
-})
 
 test('usage windows come from the rate limits', async () => {
   expect(toUsage([])).toBe(null)

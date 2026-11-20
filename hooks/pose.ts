@@ -27,6 +27,39 @@ export type Rules = {
 
 export const RULES: Rules = { hold: 4, linger: 5, bridge: 1, keep: 25, animate: true, vary: true }
 
+const DOCS_PREFIX = 'mcp__claude_ai_Claude_Docs__'
+
+const READING = ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'ToolSearch']
+const WRITING = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
+const RUNNING = ['Bash', 'BashOutput', 'KillShell', 'TaskStop']
+const SEARCHING = ['WebFetch', 'WebSearch']
+const DELEGATING = ['Agent', 'Task', 'SendMessage', 'Workflow', 'Skill']
+const DOCS_READING = ['read', 'query', 'guide']
+
+// Which pose a tool asks for: tools named in full, or a family of tools by the
+// start of their names, whose pose follows from the rest of the name. The
+// first rule that matches wins.
+type ToolRule = { tools: string[]; pose: Pose } | { prefix: string; pose: (rest: string) => Pose }
+
+const TOOL_RULES: ToolRule[] = [
+  { tools: ['AskUserQuestion'], pose: 'questioning' },
+  { prefix: DOCS_PREFIX, pose: rest => (DOCS_READING.includes(rest) ? 'reading' : 'writing') },
+  { tools: READING, pose: 'reading' },
+  { tools: WRITING, pose: 'writing' },
+  { tools: RUNNING, pose: 'running' },
+  { tools: SEARCHING, pose: 'searching' },
+  { tools: DELEGATING, pose: 'delegating' },
+]
+
+export const poseFor = (tool: string): Pose => {
+  for (const rule of TOOL_RULES) {
+    if ('prefix' in rule) {
+      if (tool.startsWith(rule.prefix)) return rule.pose(tool.slice(rule.prefix.length))
+    } else if (rule.tools.includes(tool)) return rule.pose
+  }
+  return 'working'
+}
+
 export type Flow = {
   // The pose on screen, or the one leaving it while `bridge` counts down.
   pose: Pose

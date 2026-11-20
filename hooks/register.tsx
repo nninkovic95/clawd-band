@@ -5,7 +5,7 @@ import type { Model, Pose } from '../types'
 import { band, fit, rowsOf } from './band'
 import { estimatedTokens, syncContext } from './context'
 import type { Clawd } from './band'
-import { poser, RULES } from './pose'
+import { poseFor, poser, RULES } from './pose'
 import type { Rules } from './pose'
 import { offerCommand, settingsPanel } from './panel'
 import { boxPixels } from './picture'
@@ -30,25 +30,6 @@ const cacheAtom = atom({ plugin: 'clawd-band', key: 'cacheAt' } as const, null)
 
 const FRAME_MS = 400 // stop-motion: a few frames, each held
 const GLANCE_MS = 1_000 // how long a subagent's tool stays wanted as a glance
-const DOCS_PREFIX = 'mcp__claude_ai_Claude_Docs__'
-
-const READING = ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'ToolSearch']
-const WRITING = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
-const RUNNING = ['Bash', 'BashOutput', 'KillShell', 'TaskStop']
-const SEARCHING = ['WebFetch', 'WebSearch']
-const DELEGATING = ['Agent', 'Task', 'SendMessage', 'Workflow', 'Skill']
-const DOCS_READING = ['read', 'query', 'guide']
-
-export const poseFor = (tool: string): Pose => {
-  if (tool === 'AskUserQuestion') return 'questioning'
-  if (tool.startsWith(DOCS_PREFIX)) return DOCS_READING.includes(tool.slice(DOCS_PREFIX.length)) ? 'reading' : 'writing'
-  if (READING.includes(tool)) return 'reading'
-  if (WRITING.includes(tool)) return 'writing'
-  if (RUNNING.includes(tool)) return 'running'
-  if (SEARCHING.includes(tool)) return 'searching'
-  if (DELEGATING.includes(tool)) return 'delegating'
-  return 'working'
-}
 
 // How a turn ended, as the pose that plays once after it.
 const ENDINGS: Record<TurnCompleteReason, Pose> = {

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Pose } from '../types'
-import { BETWEEN, play, poser, RULES, start, view, want } from './pose'
+import { BETWEEN, play, poseFor, poser, RULES, start, view, want } from './pose'
 import type { Flow } from './pose'
 import { lengthOf } from './sprite'
 
@@ -23,6 +23,35 @@ const times = (name: string, count: number): string[] => Array<string>(count).fi
 
 // Clawd at rest, then asked for a pose: it shows at once.
 const taking = (pose: Pose, seed = 1): Flow => want(start(seed), pose)
+
+test('tool names pick the pose', async () => {
+  expect(poseFor('AskUserQuestion')).toBe('questioning')
+  expect(poseFor('mcp__claude_ai_Claude_Docs__read')).toBe('reading')
+  expect(poseFor('mcp__claude_ai_Claude_Docs__update')).toBe('writing')
+  expect(poseFor('Grep')).toBe('reading')
+  expect(poseFor('Edit')).toBe('writing')
+  expect(poseFor('Bash')).toBe('running')
+  expect(poseFor('WebSearch')).toBe('searching')
+  expect(poseFor('Agent')).toBe('delegating')
+  expect(poseFor('TodoWrite')).toBe('working')
+})
+
+test('a Claude Docs tool reads when it reads, query or guide, and writes otherwise', async () => {
+  expect(poseFor('mcp__claude_ai_Claude_Docs__read')).toBe('reading')
+  expect(poseFor('mcp__claude_ai_Claude_Docs__query')).toBe('reading')
+  expect(poseFor('mcp__claude_ai_Claude_Docs__guide')).toBe('reading')
+  expect(poseFor('mcp__claude_ai_Claude_Docs__update')).toBe('writing')
+})
+
+test('the Docs prefix counts only at the start of a tool name', async () => {
+  expect(poseFor('other__mcp__claude_ai_Claude_Docs__read')).toBe('working')
+  expect(poseFor('mcp__someone__mcp__claude_ai_Claude_Docs__update')).toBe('working')
+})
+
+test('a tool no table names keeps the working pose', async () => {
+  expect(poseFor('mcp__claude_ai_Gmail__search')).toBe('working')
+  expect(poseFor('read')).toBe('working')
+})
 
 test('from rest a pose shows at once, and its first frame stays through the next tick', async () => {
   const flow = taking('waiting')
