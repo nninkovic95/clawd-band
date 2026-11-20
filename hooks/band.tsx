@@ -8,13 +8,12 @@ import { pill } from './pill'
 import { BOX_COLUMNS, BOX_ROWS, TEXT_COLUMNS } from './sprite'
 import type { TextFrame } from './sprite'
 
-const PERCENT = 4 // " 99%": a window used up reads 99%, so the percentage keeps its width
+const PERCENT = 3 // "99%": a window used up reads 99%, so the percentage keeps its width
 const RESET = 12 // " 06d-23h-59m" or " 04h-59m-59s": one width for every row
 const SHORT_RESET = 8 // " 06d-23h" or " 04h-59m": the two biggest units, where the band is narrow
 const MIN_BAR = 4
 const MAX_BAR = 255 // the most cells an Image takes; the bars in text keep to it, so both forms end at one place
 const EDGE = 1 // the cell kept free at the band's right edge
-const FRAME = 2 // a blank cell either side of the bars
 const WEEK = 7 // days in the weekly bar
 
 // The weekly window as `06d-18h-44m`, the five-hour one as `03h-33m-24s`: the
@@ -288,7 +287,7 @@ export const fit = (view: View): Fit | null => {
   const laid = forms.map(([form, width]) => {
     const left = Math.max(width, caption.length)
     const side = left > 0 ? 1 : 0
-    const room = view.columns - side - left - side - label - FRAME - PERCENT - EDGE
+    const room = view.columns - side - left - side - label - PERCENT - EDGE
     const reset = [RESET, SHORT_RESET].find(reset => room - reset >= MIN_BAR) ?? 0
     const barWidth = Math.min(MAX_BAR, Math.max(MIN_BAR, room - reset))
     const at: Fit = { form, before: side, left, gap: side, label, reset, barWidth }
@@ -300,7 +299,6 @@ export const fit = (view: View): Fit | null => {
 
 // The hover groups: a row and its line of detail light together.
 const rowScope = (row: Row): string => `clawd-band-${row.label}`
-const DOT = '·'
 
 export function band(view: View, settings: Settings, { Box, Text, Image }: Elements['terminal']) {
   const fitted = fit(view)
@@ -323,14 +321,11 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
     const fill = row.percent ?? 0
     const shown = shownOf(row)
     const paint = row.color ?? row.own
-    const percent = row.percent == null ? (row.isLoading ? spin : '--') : `${Math.min(99, Math.round(fill))}%`
+    const percent = row.percent == null ? (row.isLoading ? spin : '--') : `${String(Math.min(99, Math.round(fill))).padStart(2, '0')}%`
     const timer = row.isLoading ? row.timer.replaceAll('-', spin) : row.timer
     return (
       <Box key={`row-${row.label}`} flexDirection="row" hover={{ scope: rowScope(row) }}>
         <Text dimColor>{row.label.padEnd(label)}</Text>
-        {/* A dim dot either side of the bar, in the cell that parts it from its label and
-            from its figure: they guide the eye along the row. */}
-        <Text dimColor>{DOT}</Text>
         {isPicture ? (
           <Image
             key={`bar-${row.label}`}
@@ -359,7 +354,6 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
             </Text>
           ))
         )}
-        <Text dimColor>{DOT}</Text>
         <Text dimColor={row.percent == null}>{percent.padStart(PERCENT)}</Text>
         {reset > 0 ? <Text> </Text> : null}
         {reset > 0 ? (

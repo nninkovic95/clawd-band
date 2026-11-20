@@ -134,7 +134,7 @@ test('before its first reply a session shows the context the engine estimates', 
   on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(BAND)
   await clock.advance(3000)
-  expect(await ui.find({ type: 'Text', text: ' 12%' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '12%' })).toBeDefined()
   // Asked for once, however often the band is drawn.
   expect(estimates).toBe(1)
   await ui.unmount()
