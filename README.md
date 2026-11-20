@@ -144,11 +144,11 @@ Nothing running. Clawd holds a steaming mug and shuts his eyes over it, or dozes
 
 ### waiting
 
-A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over, fishes with a float bobbing on the water, or watches a loading ring go round.
+A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over, fishes with a float bobbing on the water, or watches a loading ring fill up and turn green.
 
 ### thinking
 
-The model is thinking. Dots count up in a thought cloud, a bulb beside the head comes on, or two cogs turn.
+The model is thinking. Dots count up in a thought cloud, a bulb beside the head comes on, or two cogs turn, a spoke in each showing the way.
 
 ### working
 
@@ -164,7 +164,7 @@ The model is replying, or calls any tool not listed below (`TodoWrite`, an MCP t
 
 ### running
 
-`Bash`, `BashOutput`, `KillShell`, `TaskStop`. A stride and a bound with speed lines, or a green play button pressed.
+`Bash`, `BashOutput`, `KillShell`, `TaskStop`. A stride and a bound with speed lines, or a play button pressed, its bar filling as the command runs.
 
 ### searching
 
