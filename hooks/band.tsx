@@ -1,6 +1,7 @@
 import type { Elements, SessionContextUsage } from 'claude-code'
 
 import type { Usage, Window } from '../types'
+import { barLayout } from './bar'
 import type { BarStyle, Paint, Settings } from './settings'
 import type { Picture } from './picture'
 import { pill } from './pill'
@@ -75,10 +76,11 @@ export const barRuns = (width: number, percent: number, style: BarStyle, segment
   const marks = segments - 1
   const split = marks > 0 && width - marks >= segments
   const cells = split ? width - marks : width
+  const layout = barLayout(percent, segments, warned)
   // The cell each segment starts at.
-  const starts = Array.from({ length: segments }, (_, k) => Math.round((k * cells) / segments))
-  const used = Math.min(cells * perCell, Math.round((percent / 100) * cells * perCell))
-  const warnFrom = warned > 0 ? (starts[segments - warned] ?? cells) : cells
+  const starts = [0, ...layout.seams.map(seam => Math.round(seam * cells))]
+  const used = Math.round(layout.fill * cells * perCell)
+  const warnFrom = Math.round(layout.warnFrom * cells)
   type Cell = { char: string; part: Run['part']; warn: boolean; behind?: Run['behind'] }
   const drawn: Cell[] = []
   // Where each day cell sits among the drawn cells, marks included.

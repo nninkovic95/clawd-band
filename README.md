@@ -305,7 +305,7 @@ Calls it makes on Claude Code:
 
 It runs no commands, reads no files and reads no environment variables.
 
-Where the code lives: the band's drawing in `hooks/band.tsx`, the pill bars in `hooks/pill.ts`, the checked options in `hooks/settings.ts`, the usage readings in `hooks/usage/` (`model.ts` the reading, `store.ts` what the store holds, `account.ts` the request and its retries) and the merge step they share in `hooks/merge.ts`, the context estimate in `hooks/context.ts`, the settings panel in `hooks/panel.tsx`, the sprites in `hooks/sprite.ts` and the rules for which pose shows when in `hooks/pose.ts`.
+Where the code lives: the band's drawing in `hooks/band.tsx`, the pill bars in `hooks/pill.ts`, the layout both bars share in `hooks/bar.ts`, the checked options in `hooks/settings.ts`, the usage readings in `hooks/usage/` (`model.ts` the reading, `store.ts` what the store holds, `account.ts` the request and its retries) and the merge step they share in `hooks/merge.ts`, the context estimate in `hooks/context.ts`, the settings panel in `hooks/panel.tsx`, the sprites in `hooks/sprite.ts` and the rules for which pose shows when in `hooks/pose.ts`.
 
 ## Development
 
@@ -314,7 +314,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-`claude plugin test` runs nine test files in `hooks/`:
+`claude plugin test` runs ten test files in `hooks/`:
 
 | File | What it covers |
 | --- | --- |
@@ -324,6 +324,7 @@ claude plugin test .
 | `context.test.tsx` | The estimate for a session Claude Code has no context figure for and when it is asked, the rows' lines under the pointer, the context bar as one fill at every width |
 | `panel.test.tsx` | `/clawd`: the command, the panel's controls, what acting on them changes |
 | `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring |
+| `bar.test.ts` | The bar's layout as fractions, which the text and the picture bars share |
 | `merge.test.ts` | The merge step that usage readings and the model share |
 | `pose.test.ts` | The pose rules with no session around them: the hold, the plain body between two poses, bursts, endings, glances, a compaction |
 

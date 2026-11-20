@@ -1,3 +1,4 @@
+import { barLayout } from './bar'
 import { boxPixels } from './picture'
 import type { Picture, Rgba } from './picture'
 
@@ -47,17 +48,17 @@ const inPill = (x: number, y: number, from: number, to: number, height: number, 
 const painter = (spec: Pill, { width, height }: Size) => {
   const line = lineOf(height)
   const air = line
-  const segment = width / spec.segments
-  const warnFrom = (spec.segments - spec.warned) * segment
+  const layout = barLayout(spec.percent, spec.segments, spec.warned)
+  const seams = layout.seams.map(seam => seam * width)
+  const warnFrom = layout.warnFrom * width
   // A fill shorter than it is high is still round: a pill is never less than a circle.
-  const end = (width * Math.min(100, spec.percent)) / 100
+  const end = layout.fill * width
   // The fill stands in from the bar's outline by the air, the rim and its clear ring.
   const inset = air + 2 * line
   const inFill = (x: number, y: number, grown: number): boolean => end > 0 && inPill(x, y, 0, end, height, inset - grown)
   return (x: number, y: number): Rgba | null => {
     if (!inPill(x, y, 0, width, height, air)) return null
-    const seam = Math.round(x / segment) * segment
-    if (seam > 0 && seam < width && Math.abs(x - seam) < line / 2) return null
+    if (seams.some(seam => Math.abs(x - seam) < line / 2)) return null
     if (inFill(x, y, 0)) return spec.fill
     if (inFill(x, y, line)) return null
     return x >= warnFrom ? spec.warn : spec.track
