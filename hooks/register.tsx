@@ -105,9 +105,8 @@ let drawText = textIn(config.spriteColor)
 const rulesOf = (): Rules => ({ ...RULES, animate: config.animate, vary: config.randomPoses })
 
 // The one owner of the pose state; a reload starts it over.
-const posing = poser(rulesOf(), Math.floor(Math.random() * 0x7fffffff))
-// The pose last written to the atom other mods read.
-let published: Pose = 'idle'
+const freshSeed = (): number => Math.floor(Math.random() * 0x7fffffff)
+const posing = poser(rulesOf(), freshSeed())
 
 // The timer reads these between draws; a reload starts them over.
 const live: {
@@ -146,10 +145,11 @@ const live: {
   rowsDrawn: null,
 }
 
-// What the band draws: the pose or the plain body between two, its variant and its frame.
-const look = (): [Scene, number, number] => {
-  const { pose, roll, frame } = posing.shown
-  return [shownPose(pose, live.isWorking), roll, frame]
+// What the band draws: the pose or the plain body between two, in its variant and its frame.
+const scene = (): Scene => shownPose(posing.shown.pose, live.isWorking)
+const drawn = <T,>(draw: Draw<T>): T => {
+  const { roll, frame } = posing.shown
+  return draw(scene(), roll, frame)
 }
 
 // A picture is wanted wherever the terminal draws one: Clawd's, or the bars'.
@@ -159,18 +159,21 @@ const wantsPictures = (): boolean => config.sprite === 'picture' || config.barSt
 // tell: the screen redrawn where a pose cut in, and the wanted pose, ahead of
 // the screen, in the state other mods can read.
 async function publish($: EngineInterface) {
-  if (posing.takeChange()) $.ui.invalidate('ui.render')
-  if (posing.wanted !== published) {
-    published = posing.wanted
-    await update($, poseAtom, () => published)
-  }
+  const { screen, wanted } = posing.takeChange()
+  if (screen) $.ui.invalidate('ui.render')
+  if (wanted !== null) await update($, poseAtom, () => wanted)
+}
+
+// A change to the poser, published at once: nothing runs between the two, so
+// no pose it takes is left unwritten for the next.
+async function settled<T>($: EngineInterface, change: () => T): Promise<T> {
+  const result = change()
+  await publish($)
+  return result
 }
 
 // The conversation takes a pose.
-async function ask($: EngineInterface, pose: Pose) {
-  posing.want(pose)
-  await publish($)
-}
+const ask = ($: EngineInterface, pose: Pose) => settled($, () => posing.want(pose))
 
 // How the engine words its refusal to swap a picture the terminal cannot draw:
 // a background session, or a terminal without kitty graphics.
@@ -203,11 +206,11 @@ async function probe($: EngineInterface, isNewSecond: boolean) {
 async function showFrame($: EngineInterface) {
   if (!live.bandId) return
   if (live.form === 'text') {
-    if (drawText(...look()) !== live.drawn) $.ui.invalidate('ui.render')
+    if (drawn(drawText) !== live.drawn) $.ui.invalidate('ui.render')
     return
   }
   if (live.form !== 'picture') return
-  const source = drawPicture(...look())
+  const source = drawn(drawPicture)
   if (source === live.sent) return
   // A band taken down between draws refuses too; the next render places it again.
   const answer = await $.ui.blit({ requestId: live.bandId, key: 'clawd', source }).catch(() => null)
@@ -278,8 +281,7 @@ async function everySecond($: EngineInterface, now: number) {
 // changes, the once-a-second work and a redraw where the rows moved.
 async function tick($: EngineInterface) {
   live.tickedAt = Date.now()
-  posing.tick()
-  await publish($)
+  await settled($, posing.tick)
   // A compaction whose end the spinner did not tell: no turn is running, so it is over.
   if (posing.main === 'compacting' && !live.isWorking) await ask($, 'idle')
   const now = await $.clock.now()
@@ -296,10 +298,7 @@ async function tick($: EngineInterface) {
 
 const STALLED_MS = 2_000
 
-const seedPose = (pose: Pose) => {
-  posing.seed(pose)
-  published = posing.wanted
-}
+const seedPose = (pose: Pose) => posing.seed(pose, freshSeed())
 
 // Called by every hook. A resumed session can load the module without raising
 // session.start, and a timer period the engine refuses ends that timer: the
@@ -376,21 +375,15 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) {
       // A subagent's tool gets a glance; then Clawd is back at what the
       // conversation itself is doing, unless that has moved on meanwhile.
-      const handBack = posing.glance(poseFor(tool))
-      await publish($)
-      $.clock.after(GLANCE_MS, () => {
-        handBack()
-        void publish($).catch(() => undefined)
-      })
+      const handBack = await settled($, () => posing.glance(poseFor(tool)))
+      $.clock.after(GLANCE_MS, () => void settled($, handBack).catch(() => undefined))
       return next(e)
     }
-    const release = posing.hold(poseFor(tool))
-    await publish($)
+    const release = await settled($, () => posing.hold(poseFor(tool)))
     try {
       return await next(e)
     } finally {
-      release()
-      await publish($)
+      await settled($, release)
     }
   }).catch(($, e, next) => next(e))
 
@@ -447,11 +440,10 @@ export const register: Register = (on, options) => {
     const rows = await rowsAt($, now)
     live.rowsDrawn = JSON.stringify(rows)
 
-    const looks = look()
     const pictures = wantsPictures() ? live.pictures : null
-    const text = drawText(...looks)
+    const text = drawn(drawText)
     // No picture where the terminal draws none, or the person asked for text.
-    const picture = pictures && config.sprite === 'picture' ? { source: drawPicture(...looks), alt: SCENES[looks[0]].alt } : null
+    const picture = pictures && config.sprite === 'picture' ? { source: drawn(drawPicture), alt: SCENES[scene()].alt } : null
     const clawd: Clawd | null = config.sprite === 'off' ? null : { text, picture }
     const name = model.name ? shortModel(model.name) : '--'
     // Everything turned off: the row above the prompt is not the mod's.

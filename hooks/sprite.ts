@@ -236,17 +236,18 @@ const ARCS: Layer[][] = [
   [[['x ', ' x'], SIDE, TOP + 4]],
   [[[' x', 'x '], SIDE, TOP]],
 ]
+const RING = { track: 'k', filled: 'u', newest: 'w', done: 'c' } as const
 // `filled` of the ring's pixels, the newest the brightest; a whole ring is done.
 const loading = (filled: number, eyes: Body['eyes']): Art => {
   const isDone = filled === RIM.length
   const picture = body({ eyes })
   RIM.forEach(([x, y], at) => {
-    const ink = isDone ? 'c' : at >= filled ? 'k' : at === filled - 1 ? 'w' : 'u'
+    const ink = isDone ? RING.done : at >= filled ? RING.track : at === filled - 1 ? RING.newest : RING.filled
     stamp(picture, [ink], SIDE - 2 + x, 1 + y)
   })
   const text = body({ eyes })
   ARCS.forEach((arc, at) => {
-    const ink = isDone ? 'c' : at < Math.floor(filled / 4) ? 'u' : 'k'
+    const ink = isDone ? RING.done : at < Math.floor(filled / 4) ? RING.filled : RING.track
     for (const [bend, x, y] of arc) stamp(text, tall(bend.map(row => row.replaceAll('x', ink))), x, y)
   })
   return art(picture, text)
@@ -319,8 +320,13 @@ const TEXT_COG = {
 // The places round a cog's middle, clockwise from the top.
 const AROUND: Spots = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]]
 const TEXT_AROUND: Spots = [[0, -1], [1, 0], [0, 1], [-1, 0]]
+// What a spoke turns on: a cog's middle, and the places round it.
+type Wheel = { middle: Place; around: Spots }
+const BIG: Wheel = { middle: [3, 3], around: AROUND }
+const SMALL: Wheel = { middle: [2, 2], around: AROUND }
+const TEXT_BIG: Wheel = { middle: [3, 2], around: TEXT_AROUND }
 // A cog's pattern with its spoke drawn in, as `at` places on from the top.
-const spoked = (cog: string[], middle: Place, around: Spots, at: number, spoke: string): string[] => {
+const spoked = (cog: string[], { middle, around }: Wheel, at: number, spoke: string): string[] => {
   const [dx, dy] = around[((at % around.length) + around.length) % around.length] ?? [0, 0]
   return cog.map((row, y) => (y === middle[1] + dy ? row.slice(0, middle[0] + dx) + spoke + row.slice(middle[0] + dx + 1) : row))
 }
@@ -331,10 +337,10 @@ const cogs = (phase: number): Art => {
   return art(
     scene(
       { eyes, right: 'none' },
-      [spoked(COG[big], [3, 3], AROUND, phase, 'y'), SIDE - 2, 0],
-      [spoked(PINION[small], [2, 2], AROUND, -phase, 'w'), SIDE, 7],
+      [spoked(COG[big], BIG, phase, 'y'), SIDE - 2, 0],
+      [spoked(PINION[small], SMALL, -phase, 'w'), SIDE, 7],
     ),
-    scene({ eyes, right: 'none' }, [tall(spoked(TEXT_COG[big], [3, 2], TEXT_AROUND, Math.floor(phase / 2), 'y')), SIDE - 2, TOP]),
+    scene({ eyes, right: 'none' }, [tall(spoked(TEXT_COG[big], TEXT_BIG, Math.floor(phase / 2), 'y')), SIDE - 2, TOP]),
   )
 }
 const turning: Loop<Art> = [cogs(0), cogs(1), cogs(2), cogs(3), cogs(4), cogs(5), cogs(6), cogs(7)]
@@ -468,26 +474,29 @@ const running: Loop<Art> = [stride({ left: 'up' }), bound, stride({ right: 'up' 
 // Running, as a player does: a screen with a "play" triangle, pressed, then
 // green, and a bar under it filling while the command runs.
 const PLAYER = ['mmmmmm', 'mtdddm', 'mttddm', 'mtdddm', 'mmmmmm']
-const BAR = 6 // the bar's pixels in the picture; the text's has five
-const play = (pose: Body, triangle: string, filled: number, rays: Spots = []): Art => {
+const BAR_PIXELS = 6 // the bar's width in the picture
+const TEXT_BAR_PIXELS = BAR_PIXELS - 1 // and in the text, which has no room for more
+// `lit` of the picture's bar pixels are filled; the text's bar shows as much of its own.
+const play = (pose: Body, isPressed: boolean, lit: number, rays: Spots = []): Art => {
+  const triangle = isPressed ? 'w' : 'c'
   const screen = PLAYER.map(row => row.replaceAll('t', triangle))
-  const bar = (width: number, done: number) => 'c'.repeat(done) + 'm'.repeat(width - done)
-  const textBar = Math.round((filled * (BAR - 1)) / BAR)
+  const bar = (width: number, filled: number) => 'c'.repeat(filled) + 'm'.repeat(width - filled)
+  const textLit = Math.round((lit * TEXT_BAR_PIXELS) / BAR_PIXELS)
   return art(
-    dots(scene(pose, [screen, SIDE - 1, 2], [[bar(BAR, filled)], SIDE - 1, 10]), rays, 'w'),
+    dots(scene(pose, [screen, SIDE - 1, 2], [[bar(BAR_PIXELS, lit)], SIDE - 1, 10]), rays, 'w'),
     scene(
       pose,
-      [tall(['t    ', 'ttt  ', 't    '].map(row => row.replaceAll('t', triangle === 'c' ? 'c' : 'w'))), SIDE, TOP],
-      [tall([bar(BAR - 1, textBar)]), SIDE, TOP + 8],
+      [tall(['t    ', 'ttt  ', 't    '].map(row => row.replaceAll('t', triangle))), SIDE, TOP],
+      [tall([bar(TEXT_BAR_PIXELS, textLit)]), SIDE, TOP + 8],
     ),
   )
 }
-const pressed = play({ eyes: 'right', right: 'up' }, 'w', 0, [[SIDE - 2, 1], [SIDE + 2, 1], [SIDE + 4, 2]])
+const pressed = play({ eyes: 'right', right: 'up' }, true, 0, [[SIDE - 2, 1], [SIDE + 2, 1], [SIDE + 4, 2]])
 const playing: Loop<Art> = [
   pressed,
-  play({ eyes: 'right' }, 'c', 2),
-  play({ eyes: 'right' }, 'c', 4),
-  play({ eyes: 'right' }, 'c', 6),
+  play({ eyes: 'right' }, false, 2),
+  play({ eyes: 'right' }, false, 4),
+  play({ eyes: 'right' }, false, 6),
 ]
 
 // Searching: a magnifying glass held up on one side, then the other, the eyes

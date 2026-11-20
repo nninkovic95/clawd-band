@@ -271,13 +271,33 @@ test('a module loaded again takes up the pose the last one left, until a pose is
   expect(clawd.wanted).toBe('writing')
 })
 
-test('it says when the screen changed, once, and a frame of the same pose is no change', async () => {
+test('it says what changed since it was last asked, once: the screen, and the pose wanted', async () => {
   const clawd = poser(RULES, 1)
-  expect(clawd.takeChange()).toBe(false)
+  expect(clawd.takeChange()).toEqual({ screen: false, wanted: null })
   clawd.want('waiting')
-  expect(clawd.takeChange()).toBe(true)
-  expect(clawd.takeChange()).toBe(false)
+  expect(clawd.takeChange()).toEqual({ screen: true, wanted: 'waiting' })
+  expect(clawd.takeChange()).toEqual({ screen: false, wanted: null })
+  // A frame of the same pose is no change of the screen.
   clawd.tick()
   clawd.tick()
-  expect(clawd.takeChange()).toBe(false)
+  expect(clawd.takeChange()).toEqual({ screen: false, wanted: null })
+})
+
+test('a glance is a pose wanted too, and so is the rest an ending leaves', async () => {
+  const clawd = poser(RULES, 1)
+  clawd.want('working')
+  clawd.takeChange()
+  clawd.glance('reading')
+  expect(clawd.takeChange().wanted).toBe('reading')
+  clawd.want('finished')
+  clawd.takeChange()
+  for (let n = 0; n < lengthOf('finished', clawd.shown.roll) + 2; n++) clawd.tick()
+  expect(clawd.takeChange().wanted).toBe('idle')
+})
+
+test('a seed is no change to tell of: the pose it takes up is already known', async () => {
+  const clawd = poser(RULES, 1)
+  clawd.seed('reading', 7)
+  expect(clawd.takeChange().wanted).toBeNull()
+  expect(clawd.wanted).toBe('reading')
 })

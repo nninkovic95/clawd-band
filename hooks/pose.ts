@@ -200,22 +200,27 @@ export type Poser = {
   // conversation, unless that has moved on meanwhile.
   glance: (pose: Pose) => () => void
   // A module loaded again mid-session takes up the pose the last one left,
-  // as long as nothing has been asked for yet.
-  seed: (pose: Pose) => void
+  // as long as nothing has been asked for yet; a new flow is drawn from `seed`.
+  seed: (pose: Pose, seed?: number) => void
   // One tick of the frame timer.
   tick: () => void
-  // Whether the screen changed to a pose or variant, or to another frame at
-  // once, since it was last asked; asking clears it.
-  takeChange: () => boolean
+  // What changed since it was last asked, which clears it: whether the screen
+  // changed to a pose or variant, or to another frame at once, and the pose
+  // wanted, where it is not the one last told.
+  takeChange: () => Change
 }
+
+export type Change = { screen: boolean; wanted: Pose | null }
 
 const sameShown = (a: Shown, b: Shown): boolean => a.pose === b.pose && a.roll === b.roll && a.frame === b.frame
 
-export const poser = (rules: Rules, seed: number, pose: Pose = 'idle'): Poser => {
-  let flow = start(seed, pose)
-  let wanted = pose
-  let main = pose
-  // Counts the times a pose was asked for: whoever asked can hand it back only while it is still theirs.
+export const poser = (rules: Rules, seed: number): Poser => {
+  let flow = start(seed)
+  let wanted: Pose = 'idle'
+  // The pose last told by `takeChange`: what other mods can read.
+  let told: Pose = 'idle'
+  let main: Pose = 'idle'
+  // Counts the times a pose was claimed: whoever claimed it can hand it back only while it is still theirs.
   let claim = 0
   let isChanged = false
   // The conversation's own tool calls still running, oldest first.
@@ -232,9 +237,9 @@ export const poser = (rules: Rules, seed: number, pose: Pose = 'idle'): Poser =>
     get main() {
       return main
     },
-    want: pose => void ask(pose, false),
+    want: pose => void claimPose(pose, false),
     hold: pose => {
-      const running = { pose, claim: ask(pose, false) }
+      const running = { pose, claim: claimPose(pose, false) }
       tools.push(running)
       return () => {
         tools.splice(tools.indexOf(running), 1)
@@ -243,23 +248,24 @@ export const poser = (rules: Rules, seed: number, pose: Pose = 'idle'): Poser =>
         // on, or else to the wait for the next reply.
         const beside = tools.at(-1)
         if (claim !== running.claim) return
-        const handed = ask(beside?.pose ?? 'waiting', false)
+        const handed = claimPose(beside?.pose ?? 'waiting', false)
         if (beside) beside.claim = handed
       }
     },
     glance: pose => {
       // The turn's ending plays through: a subagent still at work does not cut it short.
       if (POSES[main].once) return () => undefined
-      const mine = ask(pose, true)
+      const mine = claimPose(pose, true)
       return () => {
-        if (claim === mine) ask(main, false)
+        if (claim === mine) claimPose(main, false)
       }
     },
-    seed: pose => {
+    seed: (pose, fresh = flow.seed) => {
       if (claim > 0) return
       wanted = pose
+      told = pose
       main = pose
-      flow = start(flow.seed, pose)
+      flow = start(fresh, pose)
     },
     tick: () => {
       const before = self.shown
@@ -267,16 +273,17 @@ export const poser = (rules: Rules, seed: number, pose: Pose = 'idle'): Poser =>
       // Only a new pose is drawn again whole; the frames after it are swapped in.
       if (self.shown.pose !== before.pose) isChanged = true
       // A pose that plays once has played and Clawd rests: the session is at rest too.
-      if (POSES[wanted].once && flow.pose === 'idle') ask('idle', false)
+      if (POSES[wanted].once && flow.pose === 'idle') claimPose('idle', false)
     },
     takeChange: () => {
-      const changed = isChanged
+      const change = { screen: isChanged, wanted: wanted === told ? null : wanted }
       isChanged = false
-      return changed
+      told = wanted
+      return change
     },
   }
 
-  function ask(next: Pose, isGlance: boolean): number {
+  function claimPose(next: Pose, isGlance: boolean): number {
     claim += 1
     if (!isGlance) main = next
     const before = self.shown
