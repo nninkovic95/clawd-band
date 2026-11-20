@@ -120,12 +120,12 @@ export const start = (seed: number, pose: Pose = 'idle'): Flow => ({
 
 const playsOnce = (pose: Pose): boolean => POSES[pose].once === true
 
-// Poses that cannot wait their turn: the turn is over (its ending, or rest),
-// or a question dialog is opening, which freezes the band on the frame it shows.
-const cutsIn = (pose: Pose): boolean => pose === 'idle' || pose === 'questioning' || playsOnce(pose)
-
 // Poses with nothing to play out: whatever is wanted next takes their place at once.
 const isRest = (pose: Pose): boolean => pose === 'idle' || playsOnce(pose)
+
+// Poses that cannot wait their turn: rest (see `isRest`), or a question dialog
+// opening, which freezes the band on the frame it shows.
+const cutsIn = (pose: Pose): boolean => pose === 'questioning' || isRest(pose)
 
 // Puts a pose on screen from its first frame. A pose that plays once always
 // starts in a variant of its own; any other keeps the one it left with a
@@ -149,16 +149,19 @@ const takeUp = (flow: Flow, pose: Pose, isFresh: boolean, rules: Rules): Flow =>
   }
 }
 
-// The session wants a pose: the conversation's own, or a glance at a
-// subagent's tool. Most wait for the pose on screen to have its hold; see
-// `cutsIn` and `isRest` for the ones that show at once.
-export const want = (flow: Flow, pose: Pose, isGlance = false, rules: Rules = RULES): Flow => {
-  // An ending plays through: a glance does not cut it short, and rest follows it anyway.
-  if (playsOnce(flow.pose) && (isGlance || pose === 'idle')) return flow
-  if (isGlance) {
-    const glanced = { ...flow, glance: pose }
-    return isRest(flow.pose) && pose !== flow.pose ? takeUp(glanced, pose, true, rules) : glanced
-  }
+// The session glances at a subagent's tool. An ending plays through: a glance
+// does not cut it short, and rest follows it anyway.
+export const glance = (flow: Flow, pose: Pose, rules: Rules = RULES): Flow => {
+  if (playsOnce(flow.pose)) return flow
+  const glanced = { ...flow, glance: pose }
+  return isRest(flow.pose) && pose !== flow.pose ? takeUp(glanced, pose, true, rules) : glanced
+}
+
+// The session wants a pose of the conversation's own. Most wait for the pose
+// on screen to have its hold; see `cutsIn` and `isRest` for the ones that show at once.
+export const want = (flow: Flow, pose: Pose, rules: Rules = RULES): Flow => {
+  // An ending plays through, and rest follows it anyway.
+  if (playsOnce(flow.pose) && pose === 'idle') return flow
   // Whatever the conversation asks for ends the glance.
   const base = {
     ...flow,
@@ -320,7 +323,7 @@ export const poser = (rules: Rules, seed: number): Poser => {
     claim += 1
     if (!isGlance) main = next
     const before = self.shown
-    flow = want(flow, next, isGlance, self.rules)
+    flow = isGlance ? glance(flow, next, self.rules) : want(flow, next, self.rules)
     if (!sameShown(before, self.shown)) isChanged = true
     wanted = next
     return claim

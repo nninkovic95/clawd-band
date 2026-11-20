@@ -27,7 +27,7 @@ registerHooks({
 const { PICTURE_HEIGHT, PICTURE_WIDTH, PIXEL_WIDTH, POSES, SCALE, SCENES, lengthOf, picturesIn, textIn } =
   await import('../hooks/sprite.ts')
 const { CLAUDE_ORANGE, toHex } = await import('../hooks/color.ts')
-const { BETWEEN, RULES, play, start, view, want } = await import('../hooks/pose.ts')
+const { BETWEEN, RULES, glance, play, start, view, want } = await import('../hooks/pose.ts')
 
 type Pose = keyof typeof POSES
 type Scene = keyof typeof SCENES
@@ -166,7 +166,7 @@ const flowing = (seed: number, rules: Rules): Screen => {
   let flow = start(seed)
   return {
     want(next, isGlance) {
-      flow = want(flow, next, isGlance, rules)
+      flow = isGlance ? glance(flow, next, rules) : want(flow, next, rules)
     },
     tick() {
       flow = play(flow, rules)

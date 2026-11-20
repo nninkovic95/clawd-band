@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Pose } from '../types'
-import { BETWEEN, play, poseFor, poser, RULES, start, view, want } from './pose'
+import { BETWEEN, glance, play, poseFor, poser, RULES, start, view, want } from './pose'
 import type { Flow } from './pose'
 import { lengthOf } from './sprite'
 
@@ -81,7 +81,7 @@ test('of a burst of poses only the last shows', async () => {
 })
 
 test('a pose wanted and then not wanted before it showed never shows', async () => {
-  const glanced = want(taking('delegating'), 'running', true)
+  const glanced = glance(taking('delegating'), 'running')
   expect(glanced.glance).toBe('running')
   const { flow, shown } = run(want(glanced, 'delegating'), 12)
   expect(shown).toEqual(times('delegating', 12))
@@ -135,17 +135,17 @@ test('a question and rest cut in at once too', async () => {
 
 test("a glance gives way to the conversation's own pose, and leaves an ending be", async () => {
   // The glance was still waiting its turn when the conversation went on to wait.
-  const flow = want(want(taking('thinking'), 'running', true), 'waiting')
+  const flow = want(glance(taking('thinking'), 'running'), 'waiting')
   expect(run(flow, RULES.linger + 1).shown.includes('running')).toBe(false)
   const ending = taking('finished')
-  expect(want(ending, 'running', true)).toBe(ending)
+  expect(glance(ending, 'running')).toBe(ending)
   // A new turn does take the ending's place, at once.
   expect(view(want(ending, 'waiting')).pose).toBe('waiting')
 })
 
 test("the conversation's pose has its turn before a glance, and comes back when the glance is over", async () => {
   // Wanted while thinking still had the screen, then a subagent's tool right after.
-  const flow = want(want(taking('thinking'), 'delegating'), 'reading', true)
+  const flow = glance(want(taking('thinking'), 'delegating'), 'reading')
   const glanced = run(flow, 2 * RULES.hold + 3)
   expect(glanced.shown).toEqual([
     ...times('thinking', RULES.hold),
@@ -163,7 +163,7 @@ test("the conversation's pose has its turn before a glance, and comes back when 
 test('a change of mind during the plain body does not blink back to the pose that left', async () => {
   const delegating = run(taking('delegating'), RULES.hold + 1).flow
   // The glance is handed back while the body is plain: it shows all the same, then gives way.
-  const leaving = play(want(delegating, 'running', true))
+  const leaving = play(glance(delegating, 'running'))
   expect(nameOf(leaving)).toBe('between')
   expect(run(want(leaving, 'delegating'), RULES.hold + 2).shown).toEqual([...times('running', RULES.hold), 'between', 'delegating'])
   // A newer pose wanted meanwhile shows instead of the one the body was plain for.
@@ -203,7 +203,7 @@ test('a compaction waits its turn, and waiting follows it like any activity', as
 
 test('with animation off a pose holds its first frame, and an ending still ends on time', async () => {
   const still = { ...RULES, animate: false }
-  let flow = want(start(1), 'finished', false, still)
+  let flow = want(start(1), 'finished', still)
   const frames: number[] = []
   for (let n = 0; n < lengthOf('finished', flow.roll) + 1; n++) {
     flow = play(flow, still)
@@ -216,7 +216,7 @@ test('with animation off a pose holds its first frame, and an ending still ends 
 test('with variants off every pose plays its first', async () => {
   const plain = { ...RULES, vary: false }
   const seeds = [1, 2, 3, 4, 5]
-  expect(seeds.map(seed => want(start(seed), 'working', false, plain).roll)).toEqual([0, 0, 0, 0, 0])
+  expect(seeds.map(seed => want(start(seed), 'working', plain).roll)).toEqual([0, 0, 0, 0, 0])
   expect(seeds.some(seed => want(start(seed), 'working').roll !== 0)).toBe(true)
 })
 
