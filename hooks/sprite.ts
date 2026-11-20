@@ -222,46 +222,6 @@ const angling: Loop<Art> = [
   fishing('shut', 0, ' u u u'),
 ]
 
-// Waiting, as a page that loads does: a ring that fills clockwise from the top,
-// then turns green and holds, and starts empty again.
-const RIM: Spots = [
-  [2, 0], [3, 0], [4, 0], [5, 1], [6, 2], [6, 3], [6, 4], [5, 5],
-  [4, 6], [3, 6], [2, 6], [1, 5], [0, 4], [0, 3], [0, 2], [1, 1],
-]
-// The text's ring in four arcs, clockwise from the top: each keeps to cells of
-// its own, so that it can be filled alone.
-const ARCS: Layer[][] = [
-  [[['xx'], SIDE + 2, TOP], [['x'], SIDE + 4, TOP + 2]],
-  [[['x'], SIDE + 4, TOP + 4], [['xx'], SIDE + 2, TOP + 6]],
-  [[['x ', ' x'], SIDE, TOP + 4]],
-  [[[' x', 'x '], SIDE, TOP]],
-]
-const RING = { track: 'k', filled: 'u', newest: 'w', done: 'c' } as const
-// `filled` of the ring's pixels, the newest the brightest; a whole ring is done.
-const loading = (filled: number, eyes: Body['eyes']): Art => {
-  const isDone = filled === RIM.length
-  const picture = body({ eyes })
-  RIM.forEach(([x, y], at) => {
-    const ink = isDone ? RING.done : at >= filled ? RING.track : at === filled - 1 ? RING.newest : RING.filled
-    stamp(picture, [ink], SIDE - 2 + x, 1 + y)
-  })
-  const text = body({ eyes })
-  ARCS.forEach((arc, at) => {
-    const ink = isDone ? RING.done : at < Math.floor(filled / 4) ? RING.filled : RING.track
-    for (const [bend, x, y] of arc) stamp(text, tall(bend.map(row => row.replaceAll('x', ink))), x, y)
-  })
-  return art(picture, text)
-}
-const done = loading(RIM.length, 'open')
-const spinner: Loop<Art> = [
-  loading(0, 'right'),
-  loading(4, 'right'),
-  loading(8, 'right'),
-  loading(12, 'right'),
-  done,
-  done,
-]
-
 // Thinking: a thought cloud bubbling up from the head, the dots in it counting
 // up. In the text each dot is a gap in the cloud.
 const CLOUD = ['  www ww ', ' wwwwwwww', 'wwwwwwwww', ' wwwwwww ']
@@ -301,49 +261,76 @@ const idea: Loop<Art> = [
   bulb({ eyes: 'right', left: 'up' }, 'lit', true),
 ]
 
-// Thinking, as a machine does: a cog and a pinion beside the head, turning on
-// each other. A spoke in each shows the way and how far it has turned: eight
-// frames a turn, the pinion the other way. The text has room for one cog, its
-// spoke a quarter turn every two frames.
-const COG = {
-  plus: ['   m   ', ' mmmmm ', ' mm mm ', 'mm   mm', ' mm mm ', ' mmmmm ', '   m   '],
-  cross: ['m     m', ' mmmmm ', ' mm mm ', ' m   m ', ' mm mm ', ' mmmmm ', 'm     m'],
+// Thinking, as a machine does: two cogs beside the head, their teeth meshed,
+// turning on each other. A cog is drawn from its shape, teeth round a body
+// with an axle in the middle, so that it can stand at any part of a tooth.
+type Cog = {
+  width: number
+  height: number
+  teeth: number
+  // How far out the body goes, and the tips of the teeth, in art pixels from the middle.
+  body: number
+  tip: number
+  // How far out the rivets are, that turn with the cog and show which way it goes,
+  // and how many: spread evenly, so that a loop of whole turns closes on them.
+  rivet: number
+  rivets: number
+  // Art pixels a row is tall: the text's rows are two.
+  rowHeight: number
 }
-const PINION = {
-  plus: ['  y  ', ' yyy ', 'yy yy', ' yyy ', '  y  '],
-  cross: ['y   y', ' yyy ', ' y y ', ' yyy ', 'y   y'],
+const TAU = Math.PI * 2
+const TOOTH = 0.28 // a tooth is this much of the way round its pitch, either side of its middle
+
+// The cog turned `turn` turns clockwise from a tooth, and a rivet, straight to the right.
+const cogRows = ({ width, height, teeth, body, tip, rivet, rivets, rowHeight }: Cog, turn: number, metal: string): string[] =>
+  Array.from({ length: height }, (_, row) =>
+    Array.from({ length: width }, (_, column) => {
+      const [middleX, middleY] = [(width - 1) / 2, (height - 1) / 2]
+      const [dx, dy] = [column - middleX, (row - middleY) * rowHeight]
+      const isRivet = Array.from({ length: rivets }, (_, k) => (turn + k / rivets) * TAU).some(
+        angle =>
+          column === Math.round(middleX + rivet * Math.cos(angle)) &&
+          row === Math.round(middleY + (rivet * Math.sin(angle)) / rowHeight),
+      )
+      if (isRivet) return 'w'
+      const reach = Math.hypot(dx, dy)
+      if (reach < 0.5) return 'k'
+      if (reach <= body) return metal
+      if (reach > tip) return ' '
+      const pitches = (Math.atan2(dy, dx) / TAU - turn) * teeth
+      return Math.abs(pitches - Math.round(pitches)) <= TOOTH ? metal : ' '
+    }).join(''),
+  )
+
+const BIG: Cog = { width: 7, height: 7, teeth: 6, body: 2.3, tip: 3.4, rivet: 1.5, rivets: 1, rowHeight: 1 }
+const SMALL: Cog = { width: 5, height: 5, teeth: 4, body: 1.5, tip: 2.5, rivet: 1, rivets: 2, rowHeight: 1 }
+// The text has room for the big one only, in its rows of two.
+const TEXT_BIG: Cog = { ...BIG, height: 4, rowHeight: 2 }
+const BIG_AT: Place = [SIDE - 2, 0]
+const SMALL_AT: Place = [SIDE, 7]
+
+// Where the two touch, as the big one sees it: the way to the small one.
+const TOUCH = Math.atan2(SMALL_AT[1] + 2 - (BIG_AT[1] + 3), SMALL_AT[0] + 2 - (BIG_AT[0] + 3))
+// How far the small cog has turned when the big one has turned `turn`: the
+// other way, at the ratio of their teeth, and with a tooth of one in a gap of
+// the other where they touch.
+const smallTurn = (turn: number): number => {
+  const bigTooth = (TOUCH / TAU - turn) * BIG.teeth
+  return (TOUCH + Math.PI) / TAU - (0.5 - bigTooth) / SMALL.teeth
 }
-const TEXT_COG = {
-  plus: ['  m m  ', ' mmmmm ', 'mmm mmm', ' mmmmm ', '  m m  '],
-  cross: ['   m   ', 'mmmmmmm', ' mm mm ', 'mmmmmmm', '   m   '],
-}
-// The places round a cog's middle, clockwise from the top.
-const AROUND: Spots = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]]
-const TEXT_AROUND: Spots = [[0, -1], [1, 0], [0, 1], [-1, 0]]
-// What a spoke turns on: a cog's middle, and the places round it.
-type Wheel = { middle: Place; around: Spots }
-const BIG: Wheel = { middle: [3, 3], around: AROUND }
-const SMALL: Wheel = { middle: [2, 2], around: AROUND }
-const TEXT_BIG: Wheel = { middle: [3, 2], around: TEXT_AROUND }
-// A cog's pattern with its spoke drawn in, as `at` places on from the top.
-const spoked = (cog: string[], { middle, around }: Wheel, at: number, spoke: string): string[] => {
-  const [dx, dy] = around[((at % around.length) + around.length) % around.length] ?? [0, 0]
-  return cog.map((row, y) => (y === middle[1] + dy ? row.slice(0, middle[0] + dx) + spoke + row.slice(middle[0] + dx + 1) : row))
-}
-const cogs = (phase: number): Art => {
-  const isOdd = phase % 2 === 1
-  const eyes = phase % 4 < 2 ? 'left' : 'right'
-  const [big, small] = isOdd ? (['cross', 'plus'] as const) : (['plus', 'cross'] as const)
+
+// A whole turn of the big cog, in frames: three to a tooth. The small cog goes
+// round one and a half times in it, which its two rivets, half a turn apart, close on.
+const TURN = BIG.teeth * 3
+const cogs = (frame: number): Art => {
+  const turn = frame / TURN
+  const eyes = frame < TURN / 2 ? 'left' : 'right'
   return art(
-    scene(
-      { eyes, right: 'none' },
-      [spoked(COG[big], BIG, phase, 'y'), SIDE - 2, 0],
-      [spoked(PINION[small], SMALL, -phase, 'w'), SIDE, 7],
-    ),
-    scene({ eyes, right: 'none' }, [tall(spoked(TEXT_COG[big], TEXT_BIG, Math.floor(phase / 2), 'y')), SIDE - 2, TOP]),
+    scene({ eyes, right: 'none' }, [cogRows(BIG, turn, 'm'), ...BIG_AT], [cogRows(SMALL, smallTurn(turn), 'y'), ...SMALL_AT]),
+    scene({ eyes, right: 'none' }, [tall(cogRows(TEXT_BIG, turn, 'm')), SIDE - 2, TOP]),
   )
 }
-const turning: Loop<Art> = [cogs(0), cogs(1), cogs(2), cogs(3), cogs(4), cogs(5), cogs(6), cogs(7)]
+const turning: Loop<Art> = [cogs(0), ...Array.from({ length: TURN - 1 }, (_, frame) => cogs(frame + 1))]
 
 // Questioning: a hand up and a "?" beside the head, bobbing in the picture.
 const QUESTION = [' yyy ', 'yy yy', '   yy', '  yy ', ' yy  ', ' yy  ', '     ', ' yy  ']
@@ -771,7 +758,7 @@ type PoseArt = {
 
 export const POSES: Record<Pose, PoseArt> = {
   idle: { alt: 'Clawd resting', variants: [mug, dozing] },
-  waiting: { alt: 'Clawd waiting for the reply', variants: [waiting, angling, spinner] },
+  waiting: { alt: 'Clawd waiting for the reply', variants: [waiting, angling] },
   thinking: { alt: 'Clawd thinking', variants: [pondering, idea, turning] },
   questioning: { alt: 'Clawd asking', variants: [questioning, eitherOr] },
   working: { alt: 'Clawd working', variants: [hammering, laptop, cooking] },

@@ -144,11 +144,11 @@ Nothing running. Clawd holds a steaming mug and shuts his eyes over it, or dozes
 
 ### waiting
 
-A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over, fishes with a float bobbing on the water, or watches a loading ring fill up and turn green.
+A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over, or fishes with a float bobbing on the water.
 
 ### thinking
 
-The model is thinking. Dots count up in a thought cloud, a bulb beside the head comes on, or two cogs turn, a spoke in each showing the way.
+The model is thinking. Dots count up in a thought cloud, a bulb beside the head comes on, or two meshed cogs turn on each other, a rivet on each showing which way.
 
 ### working
 
@@ -315,7 +315,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-`claude plugin test` runs seven test files in `hooks/`:
+`claude plugin test` runs eight test files in `hooks/`:
 
 | File | What it covers |
 | --- | --- |
@@ -325,6 +325,7 @@ claude plugin test .
 | `usage.test.tsx` | The diagnostic note for a usage bar that stays empty |
 | `context.test.tsx` | The estimate for a session Claude Code has no context figure for and when it is asked, the rows' lines under the pointer, the context bar as one fill at every width |
 | `panel.test.tsx` | `/clawd`: the command, the panel's controls, what acting on them changes |
+| `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring |
 | `pose.test.ts` | The pose rules with no session around them: the hold, the plain body between two poses, bursts, endings, glances, a compaction |
 
 Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
