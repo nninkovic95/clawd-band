@@ -144,7 +144,7 @@ Nothing running. Clawd holds a steaming mug and shuts his eyes over it, or dozes
 
 ### waiting
 
-A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over, or fishes with a float bobbing on the water.
+A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over, or fishes with a float bobbing on the water until a fish bites and is hauled out.
 
 ### thinking
 
@@ -156,19 +156,19 @@ The model is replying, or calls any tool not listed below (`TodoWrite`, an MCP t
 
 ### reading
 
-`Read`, `Grep`, `Glob`, `LS`, `NotebookRead`, `ToolSearch`, and the Claude Docs connector's `read`, `query` and `guide`. Clawd reads down a page with his glasses on, or holds a book open and turns a page.
+`Read`, `Grep`, `Glob`, `LS`, `NotebookRead`, `ToolSearch`, and the Claude Docs connector's `read`, `query` and `guide`. Clawd reads down a page with his glasses on, holds a book open and turns a page, or unrolls a scroll.
 
 ### writing
 
-`Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and every other Claude Docs tool (`create`, `update`, `batch` and the rest). A pencil writes line after line on a sheet of paper.
+`Edit`, `Write`, `MultiEdit`, `NotebookEdit`, and every other Claude Docs tool (`create`, `update`, `batch` and the rest). A pencil writes line after line on a sheet of paper, or boxes on a list are ticked off green.
 
 ### running
 
-`Bash`, `BashOutput`, `KillShell`, `TaskStop`. A stride and a bound with speed lines, or a play button pressed, its bar filling as the command runs.
+`Bash`, `BashOutput`, `KillShell`, `TaskStop`. A stride and a bound with speed lines, a play button pressed, its bar filling as the command runs, or a prompt where a command is typed and prints its output.
 
 ### searching
 
-`WebFetch`, `WebSearch`. A magnifying glass held up on one side and then the other, a turning globe, or a signal going out arc after arc.
+`WebFetch`, `WebSearch`. A magnifying glass held up on one side and then the other, a turning globe, or a signal going out arc after arc, the answer coming back in white.
 
 ### delegating
 
@@ -184,7 +184,7 @@ The conversation is being compacted, by `/compact` or by itself. Clawd presses a
 
 ### finished, interrupted, refused, failed
 
-How the turn ended, played once. After an answer: a green tick drawn stroke by stroke, or a chequered flag waved. After Esc: a start and a "!", the thought cloud bursting, or a no-entry sign going up in his way. After a refusal: a shake of the head beside a red cross, or a padlock snapping shut. After an error: a bolt and a reel, or a jolt that leaves him on his back with his legs in the air. With `turn_endings` off, Clawd goes straight to idle.
+How the turn ended, played once. After an answer: a green tick drawn stroke by stroke, or a chequered flag waved. After Esc: pause bars beside him, an alarm clock rattling, or a plug pulled from its socket in a spark. After a refusal: a no-entry sign swelling up as he shakes his head, or a shield turning an arrow. After an error: a bulb that flickers and blows, or a bomb that burns down and goes off. With `turn_endings` off, Clawd goes straight to idle.
 
 ### How one pose follows another
 
@@ -323,7 +323,7 @@ claude plugin test .
 | `picture.test.tsx` | Clawd's picture and its box, the pill bars pixel by pixel, the fall back to text and the way back, a very wide window |
 | `context.test.tsx` | The estimate for a session Claude Code has no context figure for and when it is asked, the rows' lines under the pointer, the context bar as one fill at every width |
 | `panel.test.tsx` | `/clawd`: the command, the panel's controls, what acting on them changes |
-| `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring |
+| `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring; how many animations a pose has, and that no two of a pose are alike; a fish comes up on the line; the signal of a fetch goes out and its answer comes back in white |
 | `bar.test.ts` | The bar's layout as fractions, which the text and the picture bars share |
 | `merge.test.ts` | The merge step that usage readings and the model share |
 | `pose.test.ts` | The pose rules with no session around them: the hold, the plain body between two poses, bursts, endings, glances, a compaction |

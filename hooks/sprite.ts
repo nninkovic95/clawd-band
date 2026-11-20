@@ -204,22 +204,34 @@ const waiting: Loop<Art> = [turned, turned, timing('half'), timing('spent'), tim
 const ROD: Spots = [[21, 7], [22, 6], [23, 5], [24, 4], [25, 3]]
 const TEXT_ROD: Spots = [[SIDE - 1, TOP + 4], [SIDE, TOP + 2], [SIDE + 1, TOP]]
 const FLOAT = [' r ', 'rrr', 'www']
-const fishing = (eyes: Body['eyes'], dip: number, ripple: string): Art => {
+// `lifted`: the float is out of the water with the fish on the line, so it is not drawn.
+type Catch = { arms?: Pick<Body, 'left' | 'right'>; line?: number; textLine?: number; lifted?: true; picture?: Layer[]; text?: Layer[] }
+const fishing = (eyes: Body['eyes'], dip: number, ripple: string, { arms = {}, line = 5, textLine = 2, lifted, picture: more = [], text: textMore = [] }: Catch = {}): Art => {
   const sea: Layer = [[ripple, 'uuuuuu'], SIDE - 1, 12]
-  const picture = scene({ eyes }, [fill(1, 5 + dip, 'w'), 26, 4], sea, [FLOAT, 25, 9 + dip])
+  const picture = scene({ eyes, ...arms }, [fill(1, line + dip, 'w'), 26, 4], sea, ...(lifted ? [] : [[FLOAT, 25, 9 + dip] as Layer]), ...more)
   const text = scene(
-    { eyes },
-    [tall(['ww', ...fill(1, 2 + dip, ' w')]), SIDE + 2, TOP],
+    { eyes, ...arms },
+    [tall(['ww', ...fill(1, textLine + dip, ' w')]), SIDE + 2, TOP],
     [tall(['uuuuuu']), SIDE - 1, TOP + 8],
-    [tall(['rr']), SIDE + 2, TOP + 6 + dip * 2],
+    ...(lifted ? [] : [[tall(['rr']), SIDE + 2, TOP + 6 + dip * 2] as Layer]),
+    ...textMore,
   )
   return art(dots(picture, ROD, 'l'), marks(text, TEXT_ROD, 'l'))
 }
+// A fish: silver, with a white eye, in the water or on the line.
+const FISH = ['  mm ', 'mmmmm', 'mwmm ', ' mm  ']
+const TEXT_FISH = tall(['mmm', 'mmm'])
 const angling: Loop<Art> = [
   fishing('right', 0, 'u u u '),
   fishing('right', 0, ' u u u'),
+  // It nibbles: the float twitches.
   fishing('right', 1, 'u u u '),
-  fishing('shut', 0, ' u u u'),
+  fishing('right', 0, ' u u u'),
+  // It bites: the float goes under with the fish below it.
+  fishing('wide', 2, 'u u u ', { picture: [[FISH, 21, 10]], text: [[TEXT_FISH, SIDE - 1, TOP + 8]] }),
+  // The rod is jerked up and the fish comes out of the water on the line.
+  fishing('wide', 0, ' u u u', { arms: { right: 'up' }, lifted: true, line: 4, textLine: 3, picture: [[FISH, 22, 8]], text: [[TEXT_FISH, SIDE + 1, TOP + 6]] }),
+  fishing('shut', 0, 'u u u ', { arms: { right: 'up' }, lifted: true, line: 1, textLine: 1, picture: [[FISH, 22, 5], [['y'], 21, 4], [['y'], 27, 8]], text: [[TEXT_FISH, SIDE + 1, TOP + 2]] }),
 ]
 
 // Thinking: a thought cloud bubbling up from the head, the dots in it counting
@@ -435,6 +447,25 @@ const studying = (line: number): Art => {
 }
 const poring: Loop<Art> = [studying(0), studying(1), studying(2), studying(3)]
 
+// Reading, a scroll: it unrolls a turn at a time, the eyes down it line by
+// line, and rolls up again.
+const unrolled = (turns: number, eyes: Body['eyes'] = 'right'): Art => {
+  const picture = scene({ eyes }, [['llllll'], SIDE - 1, 1], [fill(6, turns * 2, 'b'), SIDE - 1, 2], [['llllll'], SIDE - 1, 2 + turns * 2])
+  for (let line = 0; line < turns; line++) stamp(picture, ['kkkk'], SIDE, 3 + line * 2)
+  const text = scene({ eyes }, [tall(['lllll', ...fill(5, turns, 'b'), 'lllll']), SIDE, TOP])
+  for (let line = 0; line < turns - 1; line++) marks(text, [[SIDE + 1, TOP + 2 + line * 2]], 'k')
+  return art(picture, text)
+}
+const scrolling: Loop<Art> = [
+  unrolled(1),
+  unrolled(2),
+  unrolled(3, 'left'),
+  unrolled(3),
+  unrolled(3, 'right'),
+  unrolled(2),
+  unrolled(1, 'shut'),
+]
+
 // Writing: a pencil in the hand, its point on a sheet of paper and the line of
 // ink growing behind it, then the pencil lifted. In the text the ink is a gap
 // in the sheet.
@@ -453,10 +484,53 @@ const writer = (inked: number, lift = 0): Art => {
 }
 const writing: Loop<Art> = [writer(1), writer(2), writer(3), writer(3, 2)]
 
+// Writing, as a list is: a box at a time on a sheet is ticked off green.
+const checked = (done: number, pose: Body = {}): Art => {
+  const picture = scene({ eyes: 'right', ...pose }, [fill(6, 12, 'b'), SIDE - 1, 2])
+  const text = scene({ eyes: 'right', ...pose }, [tall(fill(5, 6, 'b')), SIDE, TOP])
+  for (let item = 0; item < 3; item++) {
+    stamp(picture, fill(3, 3, item < done ? 'c' : 'k'), SIDE, 3 + item * 4)
+    stamp(picture, ['kk'], SIDE + 4, 4 + item * 4)
+    marks(text, [[SIDE + 1, TOP + item * 4]], item < done ? 'c' : 'k')
+  }
+  return art(picture, text)
+}
+const checking: Loop<Art> = [
+  checked(0),
+  checked(1, { right: 'up' }),
+  checked(1),
+  checked(2, { right: 'up' }),
+  checked(2),
+  checked(3, { right: 'up' }),
+  checked(3, { eyes: 'shut' }),
+]
+
 // Running: he runs, a stride then a bound, speed lines and dust behind him.
 const stride = (pose: Body): Art => art(dots(scene({ ...pose, legs: 'stride' }, [['ww'], 1, 6], [['ww'], 1, 10]), [[3, 13], [1, 12]], 'm'))
 const bound = art(scene({ y: HOP }, [['ww'], 1, 4], [['ww'], 1, 8]))
 const running: Loop<Art> = [stride({ left: 'up' }), bound, stride({ right: 'up' }), bound]
+
+// Running, at a prompt: a ">" and a cursor, the command typed out, then what it printed.
+const typed = (chars: number, output: number, pose: Body = {}): Art => {
+  const picture = scene({ eyes: 'right', ...pose }, [fill(6, 8, 'd'), SIDE - 1, 4], [['mmmmmm'], SIDE - 1, 3], [['c ', ' c', 'c '], SIDE, 5])
+  stamp(picture, ['w'.repeat(chars)], SIDE + 3, 6)
+  if (chars < 2) stamp(picture, ['w', 'w'], SIDE + 3 + chars, 5)
+  for (let line = 0; line < output; line++) stamp(picture, [line % 2 ? 'cccc' : 'ccccc'], SIDE, 9 + line * 2 - 0)
+  const text = scene({ eyes: 'right', ...pose }, [tall(fill(5, 4, 'd')), SIDE, TOP + 2])
+  marks(text, [[SIDE, TOP + 2]], 'c')
+  if (chars > 0) marks(text, [[SIDE + 2, TOP + 2]], 'w')
+  if (output > 0) marks(text, [[SIDE, TOP + 6]], 'c')
+  return art(picture, text)
+}
+const prompting: Loop<Art> = [
+  typed(0, 0),
+  typed(1, 0, { left: 'up' }),
+  typed(2, 0, { right: 'up' }),
+  typed(3, 0, { left: 'up' }),
+  typed(3, 1, { eyes: 'wide' }),
+  typed(3, 2),
+  typed(3, 2, { eyes: 'shut' }),
+]
 
 // Running, as a player does: a screen with a "play" triangle, pressed, then
 // green, and a bar under it filling while the command runs.
@@ -519,17 +593,35 @@ const browsing: Loop<Art> = [
 
 // Searching, as a fetch: a signal going out, arc after arc, and its answer
 // flashing back.
-const signal = (key: string, arcs: number, eyes: Body['eyes'] = 'right'): Art => {
-  const wave = [['   x   '], ['  xxx  ', ' x   x '], [' xxxxx ', 'x     x']].map(arc => arc.map(row => row.replaceAll('x', key)))
-  const textWave = [['  x  '], [' xxx '], ['xxxxx', 'x   x']].map(arc => tall(arc.map(row => row.replaceAll('x', key))))
-  const [dot = [], inner = [], outer = []] = wave
-  const [textDot = [], textInner = [], textOuter = []] = textWave
+const signal = (dot: string, inner: string, outer: string, eyes: Body['eyes'] = 'right'): Art => {
+  const paint = (rows: string[], key: string) => (key ? rows.map(row => row.replaceAll('x', key)) : [])
   return art(
-    scene({ eyes }, [dot, SIDE - 2, 7], [arcs > 0 ? inner : [], SIDE - 2, 4], [arcs > 1 ? outer : [], SIDE - 2, 1]),
-    scene({ eyes }, [textDot, SIDE, TOP + 8], [arcs > 0 ? textInner : [], SIDE, TOP + 4], [arcs > 1 ? textOuter : [], SIDE, TOP]),
+    scene(
+      { eyes },
+      [paint(['   x   '], dot), SIDE - 2, 7],
+      [paint(['  xxx  ', ' x   x '], inner), SIDE - 2, 4],
+      [paint([' xxxxx ', 'x     x'], outer), SIDE - 2, 1],
+    ),
+    scene(
+      { eyes },
+      [paint(tall(['  x  ']), dot), SIDE, TOP + 8],
+      [paint(tall([' xxx ']), inner), SIDE, TOP + 4],
+      [paint(tall(['xxxxx', 'x   x']), outer), SIDE, TOP],
+    ),
   )
 }
-const fetchingWeb: Loop<Art> = [signal('u', 0), signal('u', 1), signal('u', 2), signal('w', 2, 'wide')]
+// The signal goes out arc by arc; the answer comes back in as a white arc, the
+// outer one first.
+const fetchingWeb: Loop<Art> = [
+  signal('u', '', ''),
+  signal('u', 'u', ''),
+  signal('u', 'u', 'u'),
+  signal('u', 'u', 'u'),
+  signal('u', 'u', 'w'),
+  signal('u', 'w', 'u'),
+  signal('w', 'u', 'u', 'wide'),
+  signal('w', '', '', 'wide'),
+]
 
 // Delegating: he stands aside for a small Clawd, half his size, who takes the
 // work. `BOSS` is where he stands to leave it room.
@@ -636,7 +728,7 @@ const ticked = (eyes: Body['eyes'], strokes = 7): Art =>
     scene({ eyes }, [TICK.map(row => row.slice(0, strokes).padEnd(7)), SIDE - 2, 2]),
     scene({ eyes }, [TEXT_TICK.map(row => row.slice(0, strokes - 2).padEnd(5)), SIDE, TOP]),
   )
-const ticking: Loop<Art> = [ticked('right', 4), ticked('right'), ticked('shut'), ticked('open'), stand]
+const ticking: Loop<Art> = [checked('right', 4), checked('right'), checked('shut'), checked('open'), stand]
 
 // Finished, as a race is: the chequered flag waved, then lowered.
 const flagged = (cloth: string[]): Art =>
@@ -648,101 +740,130 @@ const FLAG = ['w w w', ' w w ', 'w w w', ' w w ']
 const WAVED = [' w w ', 'w w w', ' w w ', 'w w w']
 const flagging: Loop<Art> = [flagged(FLAG), flagged(WAVED), flagged(FLAG), art(body({ eyes: 'shut' })), stand]
 
-// Interrupted: a start, a "!" beside the head, then the arms drop.
-const BANG = ['yyy', 'yyy', 'yyy', ' y ', ' y ', '   ', ' y ']
-const TEXT_BANG = tall(['yy', 'yy', 'yy', '  ', 'yy'])
-const startled = (pose: Body, textPose: Body = pose): Art =>
-  art(scene(pose, [BANG, SIDE + 1, 0]), scene(textPose, [TEXT_BANG, SIDE + 1, TOP]))
-const interrupted: Loop<Art> = [
-  startled({ y: 3, eyes: 'wide', left: 'up', right: 'up' }, { y: HOP, eyes: 'wide', left: 'up', right: 'up' }),
-  startled({ eyes: 'wide', left: 'up', right: 'up' }),
-  startled({ eyes: 'right' }),
-  art(body({ left: 'down', right: 'down', eyes: 'shut' })),
-]
-
-// Interrupted, as traffic is: a stop sign goes up in his way and he pulls up short.
-const STOP = [' rrrrr ', 'rrrrrrr', 'rrrrrrr', 'rwwwwwr', 'rrrrrrr', 'rrrrrrr', ' rrrrr ']
-const halted = (pose: Body, ...dust: Layer[]): Art =>
+// Interrupted, as media is: the pause bars stand beside him and fade.
+const paused = (pose: Body, key: string, textPose: Body = pose): Art =>
   art(
-    scene(pose, [fill(1, 7, 'm'), SIDE + 1, 7], [STOP, SIDE - 2, 0], ...dust),
-    scene(pose, [tall([' rrr ', 'rrrrr', ' rrr ', '  m  ', '  m  ']), SIDE, TOP]),
+    scene(pose, [fill(2, 7, key), SIDE - 1, 2], [fill(2, 7, key), SIDE + 3, 2]),
+    scene(textPose, [tall(fill(1, 3, key)), SIDE, TOP + 2], [tall(fill(1, 3, key)), SIDE + 2, TOP + 2]),
   )
-const stopped: Loop<Art> = [
-  art(scene({ legs: 'stride', left: 'up', eyes: 'right' }, [['ww'], 1, 6], [['ww'], 1, 10])),
-  halted({ eyes: 'wide', left: 'up', right: 'none' }, [['m m', ' m '], 2, 11]),
-  halted({ eyes: 'wide' }),
-  halted({ eyes: 'right' }),
-  halted({ eyes: 'shut', left: 'down', right: 'down' }),
+const pausing: Loop<Art> = [
+  paused({ y: 3, eyes: 'wide', left: 'up', right: 'up' }, 'w', { y: HOP, eyes: 'wide', left: 'up', right: 'up' }),
+  paused({ eyes: 'wide', left: 'up', right: 'up' }, 'w'),
+  paused({ eyes: 'right' }, 'w'),
+  paused({ eyes: 'right' }, 'm'),
+  paused({ eyes: 'shut', left: 'down', right: 'down' }, 'm'),
 ]
 
-// Interrupted, as a thought is: the cloud he was thinking in bursts, and he
-// blinks at where it was.
-const burst = (pose: Body, bits: Spots, textBits: Spots): Art => art(dots(body(pose), bits, 'w'), marks(body(pose), textBits, 'w'))
-const bursting: Loop<Art> = [
-  fullCloud,
-  burst(
-    { eyes: 'wide', right: 'none' },
-    [[19, 0], [22, 0], [26, 0], [20, 3], [24, 4], [27, 3], [23, 2], [22, 6]],
-    [[SIDE - 2, TOP], [SIDE + 1, TOP], [SIDE + 4, TOP + 2], [SIDE - 1, TOP + 4], [SIDE + 3, TOP + 6]],
-  ),
-  burst({ eyes: 'wide' }, [[20, 5], [25, 6], [27, 8], [23, 9]], [[SIDE, TOP + 6], [SIDE + 3, TOP + 8]]),
-  art(body({ eyes: 'shut' })),
-  stand,
-]
-
-// Refused: a shake of the head, the whole of him going with it, beside a cross.
-const CROSS = ['rr  rr', ' rrrr ', '  rr  ', '  rr  ', ' rrrr ', 'rr  rr']
-const TEXT_CROSS = tall(['r   r', ' r r ', '  r  ', ' r r ', 'r   r'])
-const no = (eyes: Body['eyes'], x = 0): Art => {
-  const pose: Body = { x, eyes, left: 'down', right: 'down' }
-  return art(scene(pose, [CROSS, SIDE - 1, 1]), scene(pose, [TEXT_CROSS, SIDE, TOP]))
-}
-const refused: Loop<Art> = [no('left', -1), no('right', 1), no('left', -1), no('right', 1), no('shut')]
-
-// Refused, as a door is: a padlock snaps shut on it, and he looks away.
-const SHACKLE = { open: [' mmmm ', 'm    m', 'm     ', 'm     '], shut: ['      ', ' mmmm ', 'm    m', 'm    m'] }
-const TEXT_SHACKLE = { open: tall([' mmm ', 'm    ']), shut: tall([' mmm ', 'm   m']) }
-const LOCK = ['yyyyyy', 'yykkyy', 'yykkyy', 'yyykyy', 'yyyyyy']
-const locked = (pose: Body, shackle: keyof typeof SHACKLE, click: Spots = []): Art =>
+// Interrupted, as a clock is: an alarm goes off on him, rattling, and is
+// slapped quiet.
+const ALARM = ['r    r', ' rrrr ', 'ryyyyr', 'ryrryr', 'ryyyyr', ' rrrr ']
+const ringing = (shake: number, pose: Body, lines: Spots = [], textLines: Spots = []): Art =>
   art(
-    dots(scene(pose, [SHACKLE[shackle], SIDE - 1, 0], [LOCK, SIDE - 1, 4]), click, 'w'),
-    scene(pose, [TEXT_SHACKLE[shackle], SIDE, TOP], [tall(['yyyyy', 'yy yy', 'yyyyy']), SIDE, TOP + 4]),
+    dots(scene(pose, [ALARM, SIDE - 1 + shake, 3]), lines, 'w'),
+    marks(scene(pose, [tall([' rrr ', 'ryyyr', 'ryyyr', ' rrr ']), SIDE + shake, TOP + 2]), textLines, 'w'),
   )
-const locking: Loop<Art> = [
-  locked({ eyes: 'right' }, 'open'),
-  locked({ eyes: 'right' }, 'shut', [[SIDE - 2, 1], [SIDE + 4, 0], [SIDE - 2, 3]]),
-  locked({ eyes: 'left', left: 'down', right: 'down' }, 'shut'),
-  locked({ eyes: 'shut', left: 'down', right: 'down' }, 'shut'),
+const alarmed: Loop<Art> = [
+  ringing(0, { eyes: 'wide' }),
+  ringing(1, { eyes: 'wide', left: 'up' }, [[SIDE - 3, 4], [SIDE - 3, 6], [SIDE + 6, 4]], [[SIDE - 1, TOP + 2], [SIDE + 5, TOP + 2]]),
+  ringing(-1, { eyes: 'wide', left: 'up' }, [[SIDE + 6, 6], [SIDE - 2, 3], [SIDE + 6, 3]], [[SIDE + 5, TOP + 4], [SIDE - 1, TOP + 4]]),
+  ringing(1, { eyes: 'wide', left: 'up', right: 'up' }, [[SIDE - 3, 4], [SIDE + 6, 6]], [[SIDE - 1, TOP + 2], [SIDE + 5, TOP + 4]]),
+  ringing(0, { eyes: 'shut', left: 'down', right: 'down' }),
 ]
 
-// Failed: a bolt strikes, then Clawd reels with stars about the head.
-const BOLT = ['   yy', '  yy ', ' yy  ', 'yyyy ', '  yy ', ' yy  ', 'yy   ', 'y    ']
-const hit = (pose: Body): Art =>
-  art(scene(pose, [BOLT, SIDE - 1, 0]), scene(pose, [tall(['  yy', ' yy ', 'yyyy', ' yy ', 'yy  ']), SIDE, TOP]))
-const dizzy = (eyes: Body['eyes'], stars: Spots, textStars: Spots): Art => {
-  const reeling = (): Grid => body({ left: 'down', right: 'down', eyes })
-  return art(dots(reeling(), stars, 'y'), marks(reeling(), textStars, 'y'))
+// Interrupted, as a cable is: the plug is pulled from its socket in a spark.
+const SOCKET = (key: string) => [`l${key}`, 'll', `l${key}`, 'll']
+const PLUG = ['mmm ', 'mmmk', 'mmm ', 'mmmk']
+const pulled = (plug: number, key: string, pose: Body, sparks: Spots = [], textSparks: Spots = []): Art => {
+  const text = scene(pose, [tall(['mmm', 'mmm']), SIDE + plug - 2, TOP + 2], [tall(['ll', 'll']), SIDE + 4, TOP + 2])
+  return art(
+    dots(scene(pose, [SOCKET(key), 26, 4], [PLUG, SIDE - 1 + plug, 4]), sparks, 'y'),
+    marks(text, textSparks, 'y'),
+  )
 }
-const reelLeft = dizzy('left', [[9, 2], [13, 1], [18, 2], [22, 4]], [[3, TOP], [SIDE + 2, TOP + 2]])
-const reelRight = dizzy('right', [[11, 1], [15, 2], [19, 1], [5, 4]], [[1, TOP + 2], [SIDE + 4, TOP]])
-const failed: Loop<Art> = [
-  hit({ eyes: 'wide' }),
-  hit({ left: 'up', right: 'up', eyes: 'shut' }),
-  reelLeft,
-  reelRight,
-  reelLeft,
-  art(body({ left: 'down', right: 'down', eyes: 'shut' })),
+const unplugged: Loop<Art> = [
+  pulled(0, 'y', { eyes: 'right' }),
+  pulled(0, 'y', { eyes: 'wide', right: 'up' }),
+  pulled(-2, 'k', { eyes: 'wide', right: 'up' }, [[25, 3], [26, 9], [24, 9]], [[SIDE + 3, TOP + 2], [SIDE + 3, TOP + 6]]),
+  pulled(-2, 'k', { eyes: 'right', right: 'up' }),
+  pulled(-2, 'k', { eyes: 'shut', left: 'down', right: 'down' }),
 ]
 
-// Failed, flat out: a jolt, and he is on his back with his legs in the air.
-const upended = (g: Grid): Grid => [...g.slice(0, TOP), ...g.slice(TOP).reverse()]
-const crashing: Loop<Art> = [
-  art(body({ eyes: 'wide' })),
-  art(body({ y: 3, eyes: 'wide', left: 'up', right: 'up' }), body({ y: HOP, eyes: 'wide', left: 'up', right: 'up' })),
-  art(upended(body({ eyes: 'wide' }))),
-  art(upended(body({ eyes: 'shut', legs: 'stride' }))),
-  art(upended(body({ eyes: 'shut' }))),
-  art(upended(body({ eyes: 'shut', legs: 'stride' }))),
+// Refused, as a sign is: the "no entry" sign swells up beside him as he shakes his head.
+const DISC = [' rrrrr ', 'rrrrrrr', 'rwwwwwr', 'rwwwwwr', 'rrrrrrr', 'rrrrrrr', ' rrrrr ']
+const SMALL_DISC = [' rrr ', 'rrrrr', 'rwwwr', 'rrrrr', ' rrr ']
+const barred = (pose: Body, isSmall = false): Art =>
+  art(
+    scene(pose, isSmall ? [SMALL_DISC, SIDE - 1, 3] : [DISC, SIDE - 2, 1]),
+    scene(pose, [tall([' rrr ', 'rwwwr', ' rrr ']), SIDE, TOP]),
+  )
+const barring: Loop<Art> = [
+  barred({ eyes: 'right' }, true),
+  barred({ eyes: 'right' }),
+  barred({ eyes: 'left', x: -1, left: 'down', right: 'down' }),
+  barred({ eyes: 'right', x: 1, left: 'down', right: 'down' }),
+  barred({ eyes: 'left', x: -1, left: 'down', right: 'down' }),
+  barred({ eyes: 'shut', left: 'down', right: 'down' }),
+]
+
+// Refused, as a shield turns an arrow: it lands on the shield, glances off
+// and drops away.
+const SHIELD = ['mmmmm', 'mrrrm', 'mrrrm', 'mrrrm', ' mrm ', '  m  ']
+const TEXT_SHIELD = tall([' mmm ', 'mrrrm', ' mrm '])
+const deflected = (pose: Body, layers: Layer[] = [], textLayers: Layer[] = [], sparks: Spots = [], textSparks: Spots = []): Art =>
+  art(
+    dots(scene(pose, [SHIELD, SIDE - 2, 3], ...layers), sparks, 'y'),
+    marks(scene(pose, [TEXT_SHIELD, SIDE, TOP], ...textLayers), textSparks, 'y'),
+  )
+const ARROW = ['w', 'l', 'l']
+const deflecting: Loop<Art> = [
+  deflected({ eyes: 'right' }),
+  deflected({ eyes: 'wide' }, [[ARROW, SIDE, 0]], [[tall(['w']), SIDE + 4, TOP]]),
+  deflected({ eyes: 'wide', right: 'up' }, [[['l'], SIDE, 1]], [], [[SIDE - 2, 2], [SIDE + 2, 2], [SIDE, 1]], [[SIDE + 4, TOP]]),
+  deflected({ eyes: 'right' }, [[['l', 'l', 'w'], SIDE + 4, 5]], [[tall(['l']), SIDE + 4, TOP + 4]]),
+  deflected({ eyes: 'shut', left: 'down', right: 'down' }, [[['llw'], SIDE + 2, 12]], [[tall(['l']), SIDE + 4, TOP + 8]]),
+]
+
+// Failed, as a bulb is: it flickers and blows, leaving a curl of smoke.
+const DEAD_BULB = [' ggg ', 'g k g', 'gk  g', 'g k g', ' gkg ', ' mmm ', '  m  ']
+const SMOKE: Record<'low' | 'high', { picture: Spots; text: Spots }> = {
+  low: { picture: [[SIDE + 1, 1], [SIDE + 2, 0]], text: [[SIDE + 1, TOP]] },
+  high: { picture: [[SIDE, 0], [SIDE + 2, 1]], text: [[SIDE + 2, TOP]] },
+}
+const blown = (pose: Body, smoke: keyof typeof SMOKE): Art =>
+  art(
+    dots(scene(pose, [DEAD_BULB, SIDE - 1, 2]), SMOKE[smoke].picture, 'm'),
+    marks(scene(pose, [tall([' gg ', 'g  g', ' mm ']), SIDE, TOP]), SMOKE[smoke].text, 'm'),
+  )
+const blowing: Loop<Art> = [
+  bulb({ eyes: 'right' }, 'lit'),
+  bulb({ eyes: 'wide' }, 'dark'),
+  bulb({ eyes: 'wide', left: 'up', right: 'up' }, 'lit', true),
+  blown({ eyes: 'wide' }, 'low'),
+  blown({ eyes: 'right', left: 'down', right: 'down' }, 'high'),
+  blown({ eyes: 'shut', left: 'down', right: 'down' }, 'low'),
+]
+
+// Failed, as a fuse is: a bomb burns down to nothing, goes off, and leaves soot.
+const BOMB = [' mmm ', 'mwmmm', 'mmmmm', 'mmmmm', ' mmm ']
+const BOOM = ['y  y  y', ' yrrry ', '  rrr  ', 'yrrrrry', '  rrr  ', ' yrrry ', 'y  y  y']
+const fused = (fuse: number, pose: Body): Art =>
+  art(
+    dots(scene(pose, [BOMB, SIDE - 1, 7], [fill(1, fuse, 'l'), SIDE + 1, 7 - fuse]), [[SIDE + 1, 6 - fuse]], 'y'),
+    marks(scene(pose, [tall([' mmm ', 'mmmmm', ' mmm ']), SIDE, TOP + 4]), [[SIDE + 2, TOP + 2 - (fuse > 1 ? 2 : 0)]], 'y'),
+  )
+const SOOT = [[SIDE - 1, 5], [SIDE + 2, 7], [SIDE + 4, 4], [SIDE + 1, 10], [SIDE + 4, 9]] satisfies Spots
+const exploded = (pose: Body, isSooty = false): Art =>
+  art(
+    isSooty ? dots(scene(pose), SOOT, 'm') : scene(pose, [BOOM, SIDE - 2, 3]),
+    isSooty ? marks(scene(pose), [[SIDE, TOP + 2], [SIDE + 3, TOP + 6]], 'm') : scene(pose, [tall(['y y y', 'yrrry', ' rrr ', 'yrrry', 'y y y']), SIDE, TOP]),
+  )
+const detonating: Loop<Art> = [
+  fused(3, { eyes: 'right' }),
+  fused(2, { eyes: 'right' }),
+  fused(1, { eyes: 'wide' }),
+  exploded({ eyes: 'wide', left: 'up', right: 'up' }),
+  exploded({ eyes: 'shut', left: 'down', right: 'down' }, true),
+  exploded({ eyes: 'shut', left: 'down', right: 'down' }, true),
 ]
 
 type PoseArt = {
@@ -762,16 +883,16 @@ export const POSES: Record<Pose, PoseArt> = {
   thinking: { alt: 'Clawd thinking', variants: [pondering, idea, turning] },
   questioning: { alt: 'Clawd asking', variants: [questioning, eitherOr] },
   working: { alt: 'Clawd working', variants: [hammering, laptop, cooking] },
-  reading: { alt: 'Clawd reading', variants: [poring, reading] },
-  writing: { alt: 'Clawd writing', variants: [writing] },
-  running: { alt: 'Clawd running a command', variants: [running, playing] },
+  reading: { alt: 'Clawd reading', variants: [poring, reading, scrolling] },
+  writing: { alt: 'Clawd writing', variants: [writing, checking] },
+  running: { alt: 'Clawd running a command', variants: [running, playing, prompting] },
   searching: { alt: 'Clawd searching the web', variants: [searching, browsing, fetchingWeb] },
   delegating: { alt: 'Clawd handing off to a subagent', variants: [delegating, spawning, supervising] },
   compacting: { alt: 'Clawd compacting the conversation', variants: [pressing, archiving], outsideTurn: true },
   finished: { alt: 'Clawd done', variants: [ticking, flagging], once: true, outsideTurn: true },
-  interrupted: { alt: 'Clawd interrupted', variants: [interrupted, bursting, stopped], once: true, outsideTurn: true },
-  refused: { alt: 'Clawd declining', variants: [refused, locking], once: true, outsideTurn: true },
-  failed: { alt: 'Clawd hit by an error', variants: [failed, crashing], once: true, outsideTurn: true },
+  interrupted: { alt: 'Clawd interrupted', variants: [pausing, alarmed, unplugged], once: true, outsideTurn: true },
+  refused: { alt: 'Clawd declining', variants: [barring, deflecting], once: true, outsideTurn: true },
+  failed: { alt: 'Clawd hit by an error', variants: [blowing, detonating], once: true, outsideTurn: true },
 }
 
 // What can be drawn: a pose, or the plain body, which is no pose of the
