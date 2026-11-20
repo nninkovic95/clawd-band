@@ -1,10 +1,11 @@
-import type { Elements, SessionContextUsage } from 'claude-code'
+import type { Elements } from 'claude-code'
 
-import type { Usage, Window } from '../types'
-import { barLayout } from './bar'
-import type { BarStyle, Paint, Settings } from './settings'
+import { barRuns, loadingRuns } from './bar'
+import type { Run } from './bar'
+import type { Settings } from './settings'
 import type { Picture } from './picture'
 import { pill } from './pill'
+import type { Row } from './rows'
 import { BOX_COLUMNS, BOX_ROWS, TEXT_COLUMNS } from './sprite'
 import type { TextFrame } from './sprite'
 
@@ -15,221 +16,10 @@ const MIN_BAR = 4
 const MAX_BAR = 255 // the most cells an Image takes; the bars in text keep to it, so both forms end at one place
 const EDGE = 1 // the cell kept free at the band's right edge
 const FRAME = 2 // a dim dot either side of the bars
-const WEEK = 7 // days in the weekly bar
-
-// The weekly window as `06d-18h-44m`, the five-hour one as `03h-33m-24s`: the
-// same width, so the two countdowns line up under each other. Both ends are
-// cut to whole seconds, so every countdown steps when the clock's second does.
-export const countdown = (resetsAt: string | null | undefined, now: number, withDays = false): string => {
-  if (!resetsAt) return withDays ? '--d---h---m' : '--h---m---s'
-  const total = Math.max(0, Math.floor(Date.parse(resetsAt) / 1000) - Math.floor(now / 1000))
-  const two = (n: number) => String(n).padStart(2, '0')
-  const minutes = Math.floor((total % 3600) / 60)
-  // Not `h`: in a .tsx file that name is the JSX factory.
-  if (withDays) return `${two(Math.floor(total / 86400))}d-${two(Math.floor((total % 86400) / 3600))}h-${two(minutes)}m`
-  return `${two(Math.floor(total / 3600))}h-${two(minutes)}m-${two(total % 60)}s`
-}
-
-// The prompt cache's time left: `00h-59m-12s` while warm, `cold` once the
-// entry has lapsed, dashes before the first reply.
-export const cacheCountdown = (cacheAt: number | null | undefined, ttlMs: number, now: number): string => {
-  if (!cacheAt) return countdown(null, now)
-  const expires = cacheAt + ttlMs
-  return expires <= now ? 'cold' : countdown(new Date(expires).toISOString(), now)
-}
-
-// The context window's size as the row's label: 1000000 -> "1m", 200000 -> "200k".
-export const windowLabel = (tokens: number | null | undefined): string => {
-  if (!tokens || tokens <= 0) return 'cx'
-  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}m`
-  return `${Math.round(tokens / 1000)}k`
-}
-
-// 320807 -> "320.8k", 667000 -> "667k", 1000000 -> "1M".
-export const tokensText = (tokens: number): string => {
-  const trim = (value: number) => String(Math.round(value * 10) / 10)
-  if (tokens >= 1_000_000) return `${trim(tokens / 1_000_000)}M`
-  return tokens >= 1000 ? `${trim(tokens / 1000)}k` : String(tokens)
-}
-
-// A stretch of a bar in one look; `warn` marks the weekly bar's last days when
-// the week is being used up ahead of time.
-// `behind` marks the fill's rounded end: what lies under the rest of its cell.
-export type Run = { text: string; part: 'filled' | 'empty' | 'loading'; warn?: true; behind?: 'empty' | 'warn' }
-
-// The cell between two days of the weekly bar: left blank, a clean gap in the
-// solid bar. Claude Code draws `dimColor` in the theme's grey, so days cannot be
-// told apart by shade, and a line glyph shows as a line between two gaps.
-const MARK = ' '
-
-// A bar's cells as runs of one kind. The cells fill one after another, each
-// through every step of the style, so a style of five steps shows a quarter
-// of a cell. A bar in `segments` (the weekly bar, one per day) has a mark
-// between them where each gets a cell. The bar takes all the room
-// it is given, so a segment may be a cell longer than another: each mark sits
-// on the cell nearest its true place, which spreads the longer ones out. A
-// mark the fill runs past takes its colour. The last `warned` segments' cells
-// are marked to warn; the marks between them are not. A style with caps rounds
-// the bar's ends, and the fill's end into what lies behind it.
-export const barRuns = (width: number, percent: number, style: BarStyle, segments = 1, warned = 0): Run[] => {
-  const perCell = style.steps.length - 1
-  const marks = segments - 1
-  const split = marks > 0 && width - marks >= segments
-  const cells = split ? width - marks : width
-  const layout = barLayout(percent, segments, warned)
-  // The cell each segment starts at.
-  const starts = [0, ...layout.seams.map(seam => Math.round(seam * cells))]
-  const used = Math.round(layout.fill * cells * perCell)
-  const warnFrom = Math.round(layout.warnFrom * cells)
-  type Cell = { char: string; part: Run['part']; warn: boolean; behind?: Run['behind'] }
-  const drawn: Cell[] = []
-  // Where each day cell sits among the drawn cells, marks included.
-  const at: number[] = []
-  for (let cell = 0; cell < cells; cell++) {
-    const step = Math.max(0, Math.min(perCell, used - cell * perCell))
-    const part = step > 0 ? 'filled' : 'empty'
-    if (split && cell > 0 && starts.includes(cell)) drawn.push({ char: MARK, part, warn: false })
-    at.push(drawn.length)
-    // Only an empty cell warns: a used one keeps the fill's colour.
-    drawn.push({ char: style.steps[step] ?? style.steps[0], part, warn: part === 'empty' && cell >= warnFrom })
-  }
-  if (style.caps) {
-    const [left, right] = style.caps
-    const first = drawn[0]
-    const last = drawn[drawn.length - 1]
-    if (first) first.char = left
-    if (last) last.char = right
-    // The fill's last cell, where it ends short of the bar's: rounded on what follows it,
-    // nothing where a day gap does. Not the first cell, which is the bar's own end.
-    const end = Math.ceil(used / perCell) - 1
-    const fillEnd = drawn[at[end] ?? -1]
-    const next = drawn[(at[end] ?? -1) + 1]
-    if (end > 0 && end < cells - 1 && fillEnd && next) {
-      fillEnd.char = right
-      if (next.char !== MARK) fillEnd.behind = next.warn ? 'warn' : 'empty'
-    }
-  }
-  const runs: Run[] = []
-  for (const { char, part, warn, behind } of drawn) {
-    const last = runs[runs.length - 1]
-    const joins = last && !behind && !last.behind
-    if (last && joins && last.part === part && (last.warn ?? false) === warn) last.text += char
-    else runs.push({ text: char, part, ...(warn ? { warn: true as const } : {}), ...(behind ? { behind } : {}) })
-  }
-  return runs
-}
-
-// The bar of a row with no reading yet: slashes with a gap in each four, a cell
-// further to the right each frame.
-export const loadingRuns = (width: number, phase: number): Run[] => [
-  {
-    text: Array.from({ length: width }, (_, cell) => (((cell - phase) % 4) + 4) % 4 === 3 ? ' ' : '/').join(''),
-    part: 'loading',
-  },
-]
 
 // What a row with no reading spins through, a frame at a time.
 const SPIN = ['-', '\\', '|', '/']
 const SILVER_TEXT = '#bec3cd'
-
-// One row of the band: a label, a bar, its percentage and a countdown.
-export type Row = {
-  label: string
-  percent: number | null | undefined
-  timer: string
-  // A countdown that is running reads bold; one with nothing to count, dim.
-  isLive: boolean
-  // No reading yet: the bar is slashes and the dashes spin.
-  isLoading?: true
-  // The fill's own colour, at any level.
-  own: Paint
-  // Paints the fill and the countdown in place of `own` (a cold cache).
-  color?: Paint
-  segments?: number
-  // How many of the last segments warn.
-  warned?: number
-  // One line of what the row's figures stand for: what the band shows for the row under
-  // the pointer.
-  detail?: string
-}
-
-const DAY_MS = 86_400_000
-const WARNED_DAYS = 3
-
-// The weekly bar's last days warn once the week is within them and is being
-// used up ahead of time: what is left of it, in days at a day's even share, is
-// fewer than the days to its reset.
-const isAhead = (window: Window | null | undefined, now: number): boolean => {
-  if (window?.percentUsed == null || !window.resetsAt) return false
-  const daysLeft = (WEEK * (100 - window.percentUsed)) / 100
-  const untilReset = (Date.parse(window.resetsAt) - now) / DAY_MS
-  return untilReset <= WARNED_DAYS && daysLeft < untilReset
-}
-
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
-
-// A usage window in a line: how much of it is used and when it ends, by the person's own
-// clock. The week also says how long what is left lasts at the pace so far.
-const windowDetail = (name: string, window: Window | null | undefined, now: number, withDays: boolean): string | undefined => {
-  if (window?.percentUsed == null || !window.resetsAt) return undefined
-  const end = new Date(window.resetsAt)
-  const two = (n: number) => String(n).padStart(2, '0')
-  const day = withDays ? `${DAYS[end.getDay()]} ` : ''
-  const parts = [`${name} ${Math.min(99, Math.round(window.percentUsed))}%`, `resets ${day}${two(end.getHours())}:${two(end.getMinutes())}`]
-  if (withDays && window.percentUsed > 0) {
-    const untilReset = (end.getTime() - now) / DAY_MS
-    const lasts = ((100 - window.percentUsed) * (WEEK - untilReset)) / window.percentUsed
-    parts.push(lasts >= untilReset ? 'enough to the reset' : `${lasts.toFixed(1)} days left at this pace`)
-  }
-  return parts.join(' · ')
-}
-
-const detailOf = (detail: string | undefined): { detail?: string } => (detail ? { detail } : {})
-
-export type Reading = {
-  usage: Usage | null | undefined
-  context: SessionContextUsage | null | undefined
-  cacheAt: number | null | undefined
-  now: number
-}
-
-// The rows the person asked for, top to bottom: the week, the five hours, and
-// the context window with the prompt cache's countdown.
-export const rowsOf = ({ usage, context, cacheAt, now }: Reading, settings: Settings): Row[] => {
-  const windowRow = (label: string, window: Window | null | undefined, own: Paint, withDays = false): Row => ({
-    label,
-    percent: window?.percentUsed,
-    own,
-    // At 0% with nothing to count to, the window has run out, or has not begun: the
-    // next request opens it. Dashes are for a window nothing is known of.
-    timer: window?.percentUsed === 0 && !window.resetsAt ? 'reset' : countdown(window?.resetsAt, now, withDays),
-    isLive: !!window?.resetsAt,
-    ...(window?.percentUsed == null ? { isLoading: true as const } : {}),
-    // The weekly bar is cut into its seven days.
-    segments: withDays ? WEEK : 1,
-    ...(withDays && isAhead(window, now) ? { warned: WARNED_DAYS } : {}),
-    ...detailOf(windowDetail(withDays ? 'week' : 'five hours', window, now, withDays)),
-  })
-  const cacheTimer = cacheCountdown(cacheAt, settings.cacheTtlMs, now)
-  const isCold = cacheTimer === 'cold'
-  const rows: Row[] = []
-  if (settings.showWeekly) rows.push(windowRow('7d', usage?.sevenDay, settings.weeklyColor, true))
-  if (settings.showFiveHour) rows.push(windowRow('5h', usage?.fiveHour, settings.fiveHourColor))
-  if (settings.showContext) {
-    const tokens = context?.tokens
-    const detail = context && tokens != null ? `${tokensText(tokens)} of ${tokensText(context.window)}` : undefined
-    rows.push({
-      ...(detail ? { detail } : {}),
-      label: windowLabel(context?.window),
-      percent: context?.percent,
-      own: settings.contextColor,
-      timer: cacheTimer,
-      isLive: cacheAt != null && !isCold,
-      color: isCold ? settings.cold : undefined,
-    })
-  }
-  return rows
-}
 
 // Clawd as the band may draw him: in text always, and as a picture where the
 // terminal draws one. The band picks the form that fits its width.
@@ -312,16 +102,14 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
   const isPicture = view.pictures === true && settings.barStyle.isPicture === true
   const detailWidth = Math.max(0, view.columns - EDGE - 1)
 
-  // Every bar shows its whole fill, one plain fill from the bar's start.
-  const shownOf = (row: Row): number => row.percent ?? 0
   const phase = view.phase ?? 0
   const spin = SPIN[phase % 4] ?? '-'
-  const runsOf = (row: Row): Run[] =>
-    isPicture ? [] : row.isLoading ? loadingRuns(barWidth, phase) : barRuns(barWidth, shownOf(row), settings.barStyle, row.segments, row.warned)
+  const runsOf = (row: Row, fill: number): Run[] =>
+    isPicture ? [] : row.isLoading ? loadingRuns(barWidth, phase) : barRuns(barWidth, fill, settings.barStyle, row.segments, row.warned)
 
   const bar = (row: Row) => {
+    // Every bar shows its whole fill, one plain fill from the bar's start.
     const fill = row.percent ?? 0
-    const shown = shownOf(row)
     const paint = row.color ?? row.own
     const percent = row.percent == null ? (row.isLoading ? spin : '--') : `${String(Math.min(99, Math.round(fill))).padStart(2, '0')}%`
     const timer = row.isLoading ? row.timer.replaceAll('-', spin) : row.timer
@@ -337,7 +125,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
             source={pill({
               columns: barWidth,
               ratio: settings.cellRatio,
-              percent: shown,
+              percent: fill,
               segments: row.segments ?? 1,
               warned: row.warned ?? 0,
               fill: paint.rgba,
@@ -350,7 +138,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
             alt={`${row.label} ${percent}`}
           />
         ) : (
-          runsOf(row).map(run => (
+          runsOf(row, fill).map(run => (
             <Text
               color={run.part === 'loading' ? SILVER_TEXT : (run.part === 'filled' ? paint : run.warn ? settings.warning : settings.empty).text}
               backgroundColor={(run.behind === 'warn' ? settings.warning : run.behind === 'empty' ? settings.empty : undefined)?.text}
@@ -370,7 +158,6 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
       </Box>
     )
   }
-
 
   const clawd =
     form === 'text' && view.clawd ? (
@@ -401,32 +188,32 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
           line under him. Bars in text, a blank row between each two, are taller and hang from
           the bottom: the last one sits beside the model line. */}
       <Box key="beside" flexDirection="row" alignItems={isPicture ? 'flex-start' : 'flex-end'}>
-      {left > 0 ? (
-        <Box key="clawd-column" flexDirection="column" width={left} marginLeft={before} alignItems="center">
-          {clawd ? (
-            // Placed by hand, so the two forms share one centre whatever the
-            // column's width.
-            <Box
-              key="clawd-place"
-              alignSelf="flex-start"
-              marginLeft={Math.floor((left - (form === 'text' ? TEXT_COLUMNS : BOX_COLUMNS)) / 2)}
-            >
-              {clawd}
-            </Box>
-          ) : null}
-          {view.model ? (
-            <Box key="model" flexDirection="row">
-              <Text bold>{view.model.name}</Text>
-              {view.model.effort ? <Text dimColor>{effortText(view.model.effort)}</Text> : null}
-            </Box>
-          ) : null}
+        {left > 0 ? (
+          <Box key="clawd-column" flexDirection="column" width={left} marginLeft={before} alignItems="center">
+            {clawd ? (
+              // Placed by hand, so the two forms share one centre whatever the
+              // column's width.
+              <Box
+                key="clawd-place"
+                alignSelf="flex-start"
+                marginLeft={Math.floor((left - (form === 'text' ? TEXT_COLUMNS : BOX_COLUMNS)) / 2)}
+              >
+                {clawd}
+              </Box>
+            ) : null}
+            {view.model ? (
+              <Box key="model" flexDirection="row">
+                <Text bold>{view.model.name}</Text>
+                {view.model.effort ? <Text dimColor>{effortText(view.model.effort)}</Text> : null}
+              </Box>
+            ) : null}
+          </Box>
+        ) : null}
+        {/* A bar in text fills its cells, round ends and all, so a blank row parts each two; a
+            picture leaves air of its own. */}
+        <Box key="bars" flexDirection="column" marginLeft={gap} marginRight={EDGE}>
+          {view.rows.flatMap((row, at) => (at === 0 || isPicture ? [bar(row)] : [<Text> </Text>, bar(row)]))}
         </Box>
-      ) : null}
-      {/* A bar in text fills its cells, round ends and all, so a blank row parts each two; a
-          picture leaves air of its own. */}
-      <Box key="bars" flexDirection="column" marginLeft={gap} marginRight={EDGE}>
-        {view.rows.flatMap((row, at) => (at === 0 || isPicture ? [bar(row)] : [<Text> </Text>, bar(row)]))}
-      </Box>
       </Box>
       {/* Each row's line of detail, hidden until the pointer is on its row. Placed over the
           top row, so that showing one moves nothing, and as wide as the band, so that it

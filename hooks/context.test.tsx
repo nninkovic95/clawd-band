@@ -1,7 +1,7 @@
 import type { On, SessionContextBreakdown } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { rowsOf } from './band'
+import { rowsOf } from './rows'
 import { pill } from './pill'
 import { BAND as KIT_BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
 import type { Drawn } from './kit'

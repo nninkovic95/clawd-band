@@ -1,7 +1,8 @@
 import type { Hook, SessionContextBreakdown, SessionContextUsage, SessionRateLimit } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { barRuns, rowsOf } from './band'
+import { barRuns } from './bar'
+import { rowsOf } from './rows'
 import { imageOf, pixelOf } from './kit'
 import { BAR_STYLES, settings } from './settings'
 
