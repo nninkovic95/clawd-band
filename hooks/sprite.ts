@@ -200,40 +200,6 @@ const tossed = art(
 const turned = timing('full')
 const waiting: Loop<Art> = [turned, turned, timing('half'), timing('spent'), timing('spent', 'shut'), tossed]
 
-// Waiting, with a line out: the float bobs on the water and nothing bites.
-const ROD: Spots = [[21, 7], [22, 6], [23, 5], [24, 4], [25, 3]]
-const TEXT_ROD: Spots = [[SIDE - 1, TOP + 4], [SIDE, TOP + 2], [SIDE + 1, TOP]]
-const FLOAT = [' r ', 'rrr', 'www']
-// `lifted`: the float is out of the water with the fish on the line, so it is not drawn.
-type Catch = { arms?: Pick<Body, 'left' | 'right'>; line?: number; textLine?: number; lifted?: true; picture?: Layer[]; text?: Layer[] }
-const fishing = (eyes: Body['eyes'], dip: number, ripple: string, { arms = {}, line = 5, textLine = 2, lifted, picture: more = [], text: textMore = [] }: Catch = {}): Art => {
-  const sea: Layer = [[ripple, 'uuuuuu'], SIDE - 1, 12]
-  const picture = scene({ eyes, ...arms }, [fill(1, line + dip, 'w'), 26, 4], sea, ...(lifted ? [] : [[FLOAT, 25, 9 + dip] as Layer]), ...more)
-  const text = scene(
-    { eyes, ...arms },
-    [tall(['ww', ...fill(1, textLine + dip, ' w')]), SIDE + 2, TOP],
-    [tall(['uuuuuu']), SIDE - 1, TOP + 8],
-    ...(lifted ? [] : [[tall(['rr']), SIDE + 2, TOP + 6 + dip * 2] as Layer]),
-    ...textMore,
-  )
-  return art(dots(picture, ROD, 'l'), marks(text, TEXT_ROD, 'l'))
-}
-// A fish: silver, with a white eye, in the water or on the line.
-const FISH = ['  mm ', 'mmmmm', 'mwmm ', ' mm  ']
-const TEXT_FISH = tall(['mmm', 'mmm'])
-const angling: Loop<Art> = [
-  fishing('right', 0, 'u u u '),
-  fishing('right', 0, ' u u u'),
-  // It nibbles: the float twitches.
-  fishing('right', 1, 'u u u '),
-  fishing('right', 0, ' u u u'),
-  // It bites: the float goes under with the fish below it.
-  fishing('wide', 2, 'u u u ', { picture: [[FISH, 21, 10]], text: [[TEXT_FISH, SIDE - 1, TOP + 8]] }),
-  // The rod is jerked up and the fish comes out of the water on the line.
-  fishing('wide', 0, ' u u u', { arms: { right: 'up' }, lifted: true, line: 4, textLine: 3, picture: [[FISH, 22, 8]], text: [[TEXT_FISH, SIDE + 1, TOP + 6]] }),
-  fishing('shut', 0, 'u u u ', { arms: { right: 'up' }, lifted: true, line: 1, textLine: 1, picture: [[FISH, 22, 5], [['y'], 21, 4], [['y'], 27, 8]], text: [[TEXT_FISH, SIDE + 1, TOP + 2]] }),
-]
-
 // Thinking: a thought cloud bubbling up from the head, the dots in it counting
 // up. In the text each dot is a gap in the cloud.
 const CLOUD = ['  www ww ', ' wwwwwwww', 'wwwwwwwww', ' wwwwwww ']
@@ -866,7 +832,7 @@ type PoseArt = {
 
 export const POSES: Record<Pose, PoseArt> = {
   idle: { alt: 'Clawd resting', variants: [mug, dozing] },
-  waiting: { alt: 'Clawd waiting for the reply', variants: [waiting, angling] },
+  waiting: { alt: 'Clawd waiting for the reply', variants: [waiting] },
   thinking: { alt: 'Clawd thinking', variants: [pondering, idea, turning] },
   questioning: { alt: 'Clawd asking', variants: [questioning, eitherOr] },
   working: { alt: 'Clawd working', variants: [hammering, laptop, cooking] },

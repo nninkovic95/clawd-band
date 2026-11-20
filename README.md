@@ -145,7 +145,7 @@ Nothing running. Clawd holds a steaming mug and shuts his eyes over it, or dozes
 
 ### waiting
 
-A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over, or fishes with a float bobbing on the water until a fish bites and is hauled out.
+A turn has begun, or a request has gone out and no word of the reply is back yet. Clawd watches an hourglass run down and tosses it over.
 
 ### thinking
 
@@ -324,7 +324,7 @@ claude plugin test .
 | `picture.test.tsx` | Clawd's picture and its box, the pill bars pixel by pixel, the loading pill's moving slashes, the fall back to text and the way back, a very wide window |
 | `context.test.tsx` | The estimate for a session Claude Code has no context figure for and when it is asked, the rows' lines under the pointer, the context bar as one fill at every width |
 | `panel.test.tsx` | `/clawd`: the command, the panel's controls, what acting on them changes |
-| `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring; how many animations a pose has, and that no two of a pose are alike; a fish comes up on the line; the signal of a fetch goes out and its answer comes back in white |
+| `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring; how many animations a pose has, and that no two of a pose are alike; the signal of a fetch goes out and its answer comes back in white |
 | `bar.test.ts` | The bar's layout as fractions, which the text and the picture bars share |
 | `merge.test.ts` | The merge step that usage readings and the model share |
 | `pose.test.ts` | The pose rules with no session around them: the hold, the plain body between two poses, bursts, endings, glances, a compaction |

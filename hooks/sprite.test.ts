@@ -32,8 +32,8 @@ const step = (before: number, after: number, rivets = 1): number => {
   return Math.atan2(Math.sin(turn), Math.cos(turn)) / rivets
 }
 
-test('waiting has the hourglass and the float, and no loading ring', async () => {
-  expect(POSES.waiting.variants.length).toBe(2)
+test('waiting is the hourglass, with no loading ring', async () => {
+  expect(POSES.waiting.variants.length).toBe(1)
 })
 
 test('the cogs turn on each other: the big one clockwise, the small one the other way', async () => {
@@ -86,15 +86,7 @@ const pixelsOf = (rgba: string, colour: number[], from = 0): number => {
   }
   return found
 }
-const SILVER = [150, 155, 165] // the metal that a fish is drawn in
 const WATER = [95, 160, 230]
-
-test('the fishing line gets a bite: a fish comes up on it, and the float has dipped by then', () => {
-  const frames = looks('waiting', 1)
-  expect(frames.length).toBeGreaterThan(4)
-  expect(pixelsOf(frames[0] ?? '', SILVER, 19)).toBe(0)
-  expect(frames.some(frame => pixelsOf(frame, SILVER, 19) > 4)).toBe(true)
-})
 
 const WHITE = [235, 232, 225]
 
