@@ -1,5 +1,70 @@
-// Resting, waiting, thinking and questioning: the poses of a turn that is not yet working.
-import { type Loop, type Spots, type Body, type Place, type Art, stamp, tall, dots, marks, TOP, SIDE, body, scene, art, SMALL_Z, BIG_Z } from './core'
+// Resting, loading, waiting, thinking and questioning: the poses of a turn that is not yet working.
+import {
+  type Loop,
+  type Spots,
+  type Body,
+  type Place,
+  type Layer,
+  type Art,
+  stamp,
+  tall,
+  dots,
+  marks,
+  TOP,
+  SIDE,
+  body,
+  scene,
+  art,
+  stand,
+  SMALL_Z,
+  BIG_Z,
+} from './core'
+
+// Loading, until the session's first reply: Clawd filling up, the body grey
+// and orange rising from the feet a quadrant a frame, then held whole. Both
+// forms show the same rows, so the text is the picture.
+const filledTo = (rows: number): Art => {
+  const g = body()
+  const top = TOP + 10 - rows
+  for (const line of g.slice(0, top)) {
+    line.forEach((ch, c) => {
+      if (ch === '#') line[c] = 'm'
+    })
+  }
+  return art(g)
+}
+export const fillingUp: Loop<Art> = [filledTo(0), filledTo(2), filledTo(4), filledTo(6), filledTo(8), stand, stand, stand]
+
+// Loading, as a reply being typed: three dots over the head, one by one, then
+// all bobbing once. The text has no rows over the head: its dots are beside
+// it, a quadrant each, and hold still as a "?" does.
+const typed = (count: number, lift = 0): Art => {
+  const shown = Array.from({ length: count }, (_, dot) => dot)
+  return art(
+    scene({}, ...shown.map((dot): Layer => [['ww', 'ww'], 10 + dot * 4, 1 + lift])),
+    marks(body(), shown.map((dot): [number, number] => [SIDE + dot * 2, TOP]), 'w'),
+  )
+}
+export const typingDots: Loop<Art> = [typed(0), typed(1), typed(2), typed(3), typed(3, 1), typed(3)]
+
+// Loading, as a machine starts: a little screen in the hand, a cursor
+// blinking on it, then lines of code. The text's glass is three wide and
+// three high: the lines are cut to it, and the fourth has no room.
+const SCREEN = ['mmmmmmm', 'mdddddm', 'mdddddm', 'mdddddm', 'mdddddm', 'mmmmmmm', '  mmm  ']
+const TEXT_SCREEN = tall(['mmmmm', 'mdddm', 'mdddm', 'mdddm', 'mmmmm'])
+const CODE = ['ccc', 'cc', 'cccc', 'c']
+const TEXT_LINES = 3
+const booting = (lines: number, hasCursor = true): Art => {
+  const pose: Body = { eyes: 'right', right: 'none' }
+  const written = CODE.slice(0, lines)
+  const picture = scene(pose, [SCREEN, SIDE - 2, TOP], ...written.map((line, row): Layer => [[line], SIDE - 1, TOP + 1 + row]))
+  if (hasCursor && lines < CODE.length) stamp(picture, ['w'], SIDE - 1, TOP + 1 + lines)
+  const textWritten = written.slice(0, TEXT_LINES).map(line => line.slice(0, TEXT_LINES))
+  const text = scene(pose, [TEXT_SCREEN, SIDE, TOP], ...textWritten.map((line, row): Layer => [tall([line]), SIDE + 1, TOP + 2 + row * 2]))
+  if (hasCursor && lines < TEXT_LINES) stamp(text, tall(['w']), SIDE + 1, TOP + 2 + lines * 2)
+  return art(picture, text)
+}
+export const bootingUp: Loop<Art> = [booting(0, false), booting(0), booting(1), booting(2), booting(3), booting(4), booting(4, false)]
 
 // Idle, on a break: a mug in the hand, steam curling off it, the eyes shut
 // over the warmth of it.

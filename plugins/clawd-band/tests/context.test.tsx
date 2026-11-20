@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { rowsOf } from '../hooks/rows'
 import { pill } from '../hooks/pill'
-import { BAND as KIT_BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
+import { BAND as KIT_BAND, core, imageOf, NOW, pixelOf, replied, REPLIED_AT, usageOf } from './kit'
 import type { Drawn } from './kit'
 import { settings } from '../hooks/settings'
 
@@ -37,6 +37,7 @@ const CONTEXT = { window: 1_000_000, tokens: 320807, percent: 32 }
 // A session the engine answers for; counts the readings and the breakdowns the mod asks of it.
 const sessionOf = (on: On, context: { window: number; tokens?: number; percent?: number } = CONTEXT, breakdown = BREAKDOWN) => {
   const asked = { breakdowns: 0, readings: 0 }
+  replied(on)
   on('session.id', () => ({ value: 'one' }))
   on('session.model', () => ({ value: 'claude-fable-5-2' }))
   on('session.usage', ($, e) => {
@@ -79,17 +80,17 @@ test('the usage rows each carry a line of detail for the pointer: when the windo
 test("the context row's line of detail says what the window holds", () => {
   const rowAt = (tokens: number) => {
     const context = { window: 1_000_000, tokens, percent: Math.round(tokens / 10_000) }
-    return rowsOf({ usage: null, context, cacheAt: null, now: NOW }, settings({})).at(-1)
+    return rowsOf({ usage: null, context, cacheAt: REPLIED_AT, now: NOW }, settings({})).at(-1)
   }
   expect(rowAt(320_807)?.detail).toBe('320.8k of 1M')
   expect(rowAt(450_000)?.detail).toBe('450k of 1M')
-  // A window no reply has measured holds nothing to say.
-  expect(rowsOf({ usage: null, context: { window: 200_000 }, cacheAt: null, now: NOW }, settings({})).at(-1)?.detail).toBe(undefined)
+  // A window the engine gives no figure for holds nothing to say.
+  expect(rowsOf({ usage: null, context: { window: 200_000 }, cacheAt: REPLIED_AT, now: NOW }, settings({})).at(-1)?.detail).toBe(undefined)
 })
 
 // The context row of the session of CONTEXT, its bar in a style.
 const contextRowIn = (bar_style: 'pill' | 'blocks') =>
-  rowsOf({ usage: null, context: CONTEXT, cacheAt: null, now: NOW }, settings({ bar_style })).at(-1)
+  rowsOf({ usage: null, context: CONTEXT, cacheAt: REPLIED_AT, now: NOW }, settings({ bar_style })).at(-1)
 
 test("in a picture's style and in text the context row's line of detail says what the window holds, and nothing more", () => {
   for (const style of ['pill', 'blocks'] as const) {
@@ -304,6 +305,7 @@ test(
   { options: { bar_style: 'pill' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
+    replied(on)
     on('session.id', () => ({ value: 'one' }))
     on('session.model', () => ({ value: 'claude-fable-5-2' }))
     on('session.usage', ($, e) => usageOf([], e.breakdown ? { ...CONTEXT, breakdown: BREAKDOWN } : CONTEXT))
@@ -357,7 +359,7 @@ test(
 )
 
 test(
-  'a session no reply has measured is estimated from its breakdown, and its bar is one plain fill',
+  'a session the engine gives no figure for is estimated from its breakdown, and its bar is one plain fill',
   { options: { bar_style: 'dots' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
@@ -609,6 +611,7 @@ test(
 // `asked` is the id each breakdown was asked under.
 const heldSessionOf = (on: On, clock: ReturnType<typeof mock.clock>, waits: number[], breakdowns: SessionContextBreakdown[] = []) => {
   const session = { id: 'one', context: CONTEXT as { window: number; tokens?: number; percent?: number }, asked: [] as string[] }
+  replied(on)
   on('session.id', () => ({ value: session.id }))
   on('session.model', () => ({ value: 'claude-fable-5-2' }))
   on('session.usage', async ($, e) => {
@@ -626,7 +629,7 @@ const heldSessionOf = (on: On, clock: ReturnType<typeof mock.clock>, waits: numb
   return session
 }
 
-// What a session no reply has measured answers: the window, and no figure of its own.
+// What a session the engine has no figure for answers: the window, and no figure of its own.
 const NO_FIGURE = { window: 1_000_000 }
 // A wait no test reaches the end of.
 const NEVER = 600_000
@@ -639,6 +642,7 @@ const figureOf = async (ui: { find: (query: { key: string }) => Promise<unknown>
 
 test('an estimate the session refuses is asked for again the next second', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   let asked = 0
   on('session.id', () => ({ value: 'one' }))
   on('session.model', () => ({ value: 'claude-fable-5-2' }))
@@ -662,6 +666,7 @@ test('an estimate the session refuses is asked for again the next second', async
 
 test('a session id lookup that fails once the session is known is no new session: its estimate is not asked for again', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   let asked = 0
   let hasId = true
   on('session.id', () => (hasId ? { value: 'one' } : { deny: 'no id now' }))

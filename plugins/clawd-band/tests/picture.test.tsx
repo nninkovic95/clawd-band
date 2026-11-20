@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
+import { BAND, core, imageOf, NOW, pixelOf, replied, usageOf } from './kit'
 import { pill } from '../hooks/pill'
 import { settings } from '../hooks/settings'
 
@@ -38,6 +38,8 @@ test('Clawd is as tall as the three pill bars and stands level with them, the mo
 
 test("Clawd's body stands on the middle of his picture", { options: { cell_ratio: '2.34' } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests, not loads.
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(BAND)
@@ -193,14 +195,14 @@ test("a clear hairline parts the weekly bar's days, through the fill and the emp
   await ui.unmount()
 })
 
-test("the weekly bar's last three days warn in the picture too: its empty part and its edge", { options: { cell_ratio: '2.34' } }, async ($, on) => {
+test("the weekly bar's pace warning shows in the picture too: its last two segments' empty part and edge", { options: { cell_ratio: '2.34' } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
-  // 85% used with two days to go: ahead of time, within the last three days.
+  // 85% used with two days to go: the fill is in the last two segments, 1.05 of them left.
   withWeekly(on, 85, 2)
   const ui = await $.ui.mount(PILLS)
   await clock.advance(1)
   const bar = (await imageOf(ui, 'bar-7d'))!
-  // The last three days start at four sevenths of 347, 198.3. The fill ends at 295.
+  // The last two segments start at five sevenths of 347, 247.9. The fill ends at 295.
   expect([150, 250].map(x => kindAt(bar, x, 2))).toEqual(['track', 'warn'])
   expect([250, 300, 340].map(x => kindAt(bar, x, 14))).toEqual(['fill', 'warn', 'warn'])
   await ui.unmount()

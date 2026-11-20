@@ -234,6 +234,11 @@ async function tick($: EngineInterface) {
   await settled($, posing.tick)
   // A compaction whose end the spinner did not tell: no turn is running, so it is over.
   if (posing.main === 'compacting' && !live.isWorking) await ask($, 'idle')
+  // At rest, Clawd loads until the session has a reply on record (the context
+  // row's wait, whether or not the row shows); the reply sends him to rest.
+  const cacheAt = await readCacheAt($)
+  if (cacheAt == null && posing.main === 'idle') await ask($, 'loading')
+  else if (cacheAt != null && posing.main === 'loading') await ask($, 'idle')
   const now = await $.clock.now()
   const second = Math.floor(now / 1000)
   const isNewSecond = second !== live.second

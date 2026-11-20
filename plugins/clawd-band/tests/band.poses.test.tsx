@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { shownPose } from '../hooks/register'
 import { lengthOf, POSES, SCENES } from '../hooks/sprite'
 import type { Pose } from '../types'
-import { BAND, core, NOW } from './band.fixtures'
+import { BAND, core, NOW, replied, usageOf } from './band.fixtures'
 
 test('outside a turn a pose of the turn shows as rest; a compaction and an ending show', async () => {
   expect(shownPose('working', true)).toBe('working')
@@ -57,8 +57,10 @@ const TURN_END = { answer: '', durationMs: 0, isAborted: false, turnId: 't1', re
 // The frames of a pose's longest variant: which one plays is rolled.
 const longest = (pose: Pose): number => Math.max(...POSES[pose].variants.map(variant => variant.length))
 
-test('a turn sets Clawd waiting for its first reply; its end plays once, then he rests', async ($, on) => {
+test('a turn sets Clawd waiting for a reply; its end plays once, then he rests', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests after the ending, not loads.
+  replied(on)
   const poses = posesWritten(on)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -67,6 +69,25 @@ test('a turn sets Clawd waiting for its first reply; its end plays once, then he
   expect(poses).toEqual(['waiting', 'finished'])
   await clock.advance(400 * (longest('finished') + 1))
   expect(poses).toEqual(['waiting', 'finished', 'idle'])
+})
+
+test('a turn that ends with no reply on record plays its ending, rests, then Clawd goes back to loading', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const poses = posesWritten(on)
+  on('session.usage', () => usageOf())
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(1)
+  expect(poses).toEqual(['loading'])
+  await $.turn.start({ text: 'hello', turnId: 't1' })
+  await $.turn.complete(TURN_END)
+  expect(poses).toEqual(['loading', 'waiting', 'finished'])
+  await clock.advance(400 * (longest('finished') + 2))
+  expect(poses).toEqual(['loading', 'waiting', 'finished', 'idle', 'loading'])
+  await ui.unmount()
 })
 
 test('how a turn ended picks its ending', async ($, on) => {
@@ -127,6 +148,8 @@ const SPINNER = {
 
 test('the spinner saying it compacts sets the pose, and its end takes it back', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests, not loads.
+  replied(on)
   on('ui.render', core)
   const poses = posesWritten(on)
   // The engine counts a compaction as work under way.
@@ -256,6 +279,8 @@ const FIRST_VARIANTS = { options: { random_poses: false } }
 
 test('an ending cuts in on the screen mid-loop and plays through to rest', FIRST_VARIANTS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests, not loads.
+  replied(on)
   on('ui.render', core)
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -295,5 +320,62 @@ test('a compaction shows after the hold, and waiting follows its end', async ($,
   await after.unmount()
   // The pose lingers while waiting is new, then gives way to it.
   expect(await posesOver(ui, clock, 6)).toEqual(['compacting', 'compacting', 'compacting', 'compacting', 'plain', 'waiting'])
+  await ui.unmount()
+})
+
+// One reply that writes a line and comes back having read the cache: the reply on record.
+const answering = (on: On) => {
+  mock.store(on) // the step stores the model it names
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('turn.step', async function* ($, e) {
+    yield { kind: 'text', index: 0, text: '' }
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } as never }
+  })
+}
+
+// Still bars, no ending to wait through: the poses alone.
+const LOADING = { animate: false, turn_endings: false } as const
+
+for (const showContext of [true, false]) {
+  test(`with show_context ${showContext ? 'on' : 'off'} Clawd loads until the first reply, then rests`, { options: { ...LOADING, show_context: showContext } }, async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    answering(on)
+    on('session.usage', () => usageOf())
+    on('ui.render', core)
+    on('ui.blit', () => ({ value: {} }))
+    const ui = await $.ui.mount(BAND)
+    expect(await posesOver(ui, clock, 4)).toEqual(['loading', 'loading', 'loading', 'loading'])
+    await $.turn.start({ text: 'hello', turnId: 't1' })
+    for await (const chunk of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) expect(chunk.kind).toBe('text')
+    await $.turn.complete(TURN_END)
+    expect(await posesOver(ui, clock, 6)).toEqual(Array(6).fill('idle'))
+    await ui.unmount()
+  })
+}
+
+test('a reply on record leaves Clawd at rest, and a compaction ending does not set him loading', { options: LOADING }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  // A real reply, so a compaction's end that wiped the record would show as loading.
+  answering(on)
+  on('session.usage', () => usageOf())
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  await $.turn.start({ text: 'hello', turnId: 't1' })
+  for await (const chunk of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) expect(chunk.kind).toBe('text')
+  await $.turn.complete(TURN_END)
+  const resting = await $.ui.mount(BAND)
+  expect(await posesOver(resting, clock, 2)).toEqual(['idle', 'idle'])
+  await resting.unmount()
+  // The engine counts a /compact as work under way, and the band hears its end once it is not.
+  const working = await $.ui.mount(WORKING_BAND)
+  const busy = await $.ui.mount({ ...SPINNER, props: { ...SPINNER.props, message: 'Compacting conversation' } })
+  await busy.unmount()
+  expect(await posesOver(working, clock, 2)).toEqual(['compacting', 'compacting'])
+  await working.unmount()
+  const ui = await $.ui.mount(BAND)
+  const after = await $.ui.mount(SPINNER)
+  await after.unmount()
+  expect(await posesOver(ui, clock, 6)).toEqual(Array(6).fill('idle'))
   await ui.unmount()
 })

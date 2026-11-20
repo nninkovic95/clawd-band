@@ -66,7 +66,58 @@ const looks = (pose: Parameters<typeof draw>[0], roll: number): string[] =>
 
 test('how many animations each pose has', () => {
   const counts = Object.fromEntries(Object.entries(POSES).map(([pose, { variants }]) => [pose, variants.length]))
-  expect(counts).toMatchObject({ writing: 2, reading: 3, running: 3, failed: 2, refused: 2, interrupted: 2, finished: 2 })
+  expect(counts).toMatchObject({ writing: 2, reading: 3, running: 3, failed: 2, refused: 2, interrupted: 2, finished: 2, loading: 3 })
+})
+
+test('loading fills up, types its dots or boots a screen: eight, six and seven frames', () => {
+  expect([0, 1, 2].map(roll => lengthOf('loading', roll))).toEqual([8, 6, 7])
+})
+
+const GREY = [150, 155, 165]
+
+test('filling up, the grey body turns orange from the feet, then holds whole', () => {
+  const frames = looks('loading', 0)
+  const orange = frames.map(frame => pixelsOf(frame, [...CLAUDE_ORANGE]))
+  const grey = frames.map(frame => pixelsOf(frame, GREY))
+  expect(orange[0]).toBe(0)
+  for (let step = 1; step < 6; step++) expect(orange[step] ?? 0).toBeGreaterThan(orange[step - 1] ?? 0)
+  expect(grey.slice(5)).toEqual([0, 0, 0])
+  expect(frames[6]).toBe(frames[7])
+})
+
+// The art rows of a frame that have a pixel of a colour, in order.
+const rowsWith = (rgba: string, colour: number[]): number[] => {
+  const bytes = Uint8Array.fromBase64(rgba)
+  const height = bytes.length / 4 / PIXEL_WIDTH / SCALE
+  const rows: number[] = []
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < PIXEL_WIDTH; col++) {
+      const at = (row * SCALE * PIXEL_WIDTH + col) * 4
+      if (colour.every((value, channel) => bytes[at + channel] === value)) {
+        rows.push(row)
+        break
+      }
+    }
+  }
+  return rows
+}
+
+test('filling up, the orange comes up from the bottom rows and the head row turns last', () => {
+  const frames = looks('loading', 0)
+  const bodyRows = rowsWith(frames[0]!, GREY)
+  const [head, feet] = [bodyRows[0]!, bodyRows.at(-1)!]
+  // Grey all over to begin with: ten rows from the head to the feet.
+  expect(bodyRows).toEqual(Array.from({ length: 10 }, (_, row) => head + row))
+  // Two more rows of orange a frame, from the feet up; the grey is what is left above.
+  for (let step = 1; step < 5; step++) {
+    const orangeFrom = feet + 1 - step * 2
+    expect(rowsWith(frames[step]!, [...CLAUDE_ORANGE])).toEqual(Array.from({ length: step * 2 }, (_, row) => orangeFrom + row))
+    expect(rowsWith(frames[step]!, GREY)).toEqual(Array.from({ length: orangeFrom - head }, (_, row) => head + row))
+  }
+  // The head row is the last one grey, and orange once the fifth frame is reached.
+  expect(rowsWith(frames[4]!, GREY)).toContain(head)
+  expect(rowsWith(frames[5]!, GREY)).toEqual([])
+  expect(rowsWith(frames[5]!, [...CLAUDE_ORANGE])[0]).toBe(head)
 })
 
 test('every animation moves, and no two animations of a pose are alike', () => {

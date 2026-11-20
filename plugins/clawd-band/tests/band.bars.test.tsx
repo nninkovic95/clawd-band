@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { barRuns } from '../hooks/bar'
 import { BAR_STYLES } from '../hooks/settings'
-import { BAND, core, type Drawn, narrow, nodes, NOW, TEXT_BARS, usageOf, words } from './band.fixtures'
+import { BAND, core, type Drawn, narrow, nodes, NOW, replied, TEXT_BARS, usageOf, words } from './band.fixtures'
 
 // The blocks style without its round ends, for the tests of days and marks: the ends have
 // their own test.
@@ -135,8 +135,16 @@ for (const [used, days, warned] of [
   [60, 4, 0],
   [30, 4, 0],
   [85, 2, 4],
+  [80, 2.5, 6],
+  [75, 2.2, 7],
+  [72, 3, 8],
+  [71, 3, 0],
+  [80, 1, 0],
+  [80, 1.5, 6],
+  [80, 1.4, 0],
+  [90, 1, 3],
 ]) {
-  test(`the last 3 days of the weekly bar warn only within them, when the week is used ahead of time (${used}%, ${days} days left)`, TEXT_BARS, async ($, on) => {
+  test(`the weekly bar warns once its fill is in the last 2 segments and fewer segments are left than days to the reset (${used}%, ${days} days left)`, TEXT_BARS, async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     const resetsAt = new Date(NOW + days! * 86_400_000).toISOString()
     on('session.usage', () => usageOf([{ kind: 'seven_day', percentUsed: used!, resetsAt }]))
@@ -144,11 +152,16 @@ for (const [used, days, warned] of [
     on('ui.blit', () => ({ value: {} }))
     const ui = await $.ui.mount(BAND)
     await clock.advance(1)
-    // 75 columns with the "200k" label and a dim dot either side: a 35-cell bar, 27 day cells
-    // and 6 marks, the last 3 days from day cell 15. 60% with 4 days to go leaves 2.8 days'
-    // worth, ahead of time, but the week is not yet in its last 3 days: nothing warns. 30% is not
-    // ahead. 85% with 2 days to go leaves 1.05: the fill ends at cell 23, and the 4 unused cells
-    // after it warn.
+    // 75 columns with the "200k" label and a dim dot either side: a 35-cell bar, 29 day cells
+    // and 6 marks, the last 2 segments 8 cells (day cells 21 to 28), a cell to each block. The
+    // rule is by fill, not by the time to the reset: the unused cells of the last 2 segments warn
+    // when the fill is inside them and the segments left are fewer than the days left. 60% (2.8
+    // segments left) and 30% are not inside them. 85% with 2 days leaves 1.05 segments: 4 cells
+    // warn; 80% with 2.5 days fills 23 cells (23.2), so 6; 75% with
+    // 2.2 days, 7; 72% with 3 days (1.96), 8. 71% leaves 2.03 segments, outside them; 80% with
+    // 1 day leaves 1.4, more than the day left; 90% with 1 day leaves 0.7: 3 cells warn.
+    // 80% always leaves 1.4 segments (7 * 20 / 100) and fills the same 23 cells: with 1.5 days to go
+    // the segments left are fewer, so 6 cells warn; with 1.4 days they are equal, which is on pace, so none.
     expect(await warnedCells(ui)).toBe(warned)
     await ui.unmount()
   })
@@ -230,6 +243,7 @@ for (const [used, colours] of [
 ] as const) {
   test(`each bar keeps its own colour at any level (${used.join(', ')}%)`, TEXT_BARS, async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
+    replied(on)
     const resetsAt = new Date(NOW + 3_600_000).toISOString()
     on('session.usage', () =>
       usageOf(
@@ -273,6 +287,7 @@ test(
 
 test('the bars take every cell left, with a one-cell gap either side of Clawd', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
   // Fixed: Clawd's box 16, "5h" 2, a dim dot either side of the bars 2, "99%" 3,
@@ -297,6 +312,7 @@ test('the bars take every cell left, with a one-cell gap either side of Clawd', 
 
 test('the bars leave Clawd 16 columns and a gap, in either form', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   let refuse = false
   on('ui.blit', () => ({ value: refuse ? { deny: 'the Image draws its alt here: no pictures in a test' } : {} }))
@@ -316,6 +332,7 @@ test('the bars leave Clawd 16 columns and a gap, in either form', TEXT_BARS, asy
 
 test('a band too narrow for whole countdowns shows their two biggest units', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(narrow(39))
@@ -330,6 +347,7 @@ test('a band too narrow for whole countdowns shows their two biggest units', TEX
 
 test('narrower still, the countdowns go and the bars keep the room', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(narrow(32))
@@ -343,6 +361,7 @@ test('narrower still, the countdowns go and the bars keep the room', TEXT_BARS, 
 
 test('narrower again, Clawd turns to the 14-cell text and the bars keep the room', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(narrow(29))
@@ -357,6 +376,7 @@ test('narrower again, Clawd turns to the 14-cell text and the bars keep the room
 
 test('narrowest, Clawd hides; the model line stays and the bars keep the room', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(narrow(21))

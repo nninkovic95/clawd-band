@@ -4,7 +4,7 @@ import { CLAUDE_ORANGE } from '../hooks/color'
 import { cacheCountdown, countdown, windowLabel } from '../hooks/format'
 import { shortModel, withoutEffort } from '../hooks/register'
 import { settings } from '../hooks/settings'
-import { BAND, core, NOW, usageOf } from './band.fixtures'
+import { BAND, core, NOW, replied, usageOf } from './band.fixtures'
 
 test('model names are shortened', async () => {
   expect(shortModel('claude-opus-5-5')).toBe('Opus 5.5')
@@ -87,6 +87,7 @@ test('options are checked, a bad colour falls back to its default', async () => 
 
 test('the band draws the sprite, both bars and the countdown', async ($, on) => {
   mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   expect(await ui.find({ key: 'clawd' })).toBeDefined()

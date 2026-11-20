@@ -1,4 +1,4 @@
-import type { Hook, SessionContextUsage, SessionRateLimit } from 'claude-code'
+import type { Hook, On, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
 // What the tests of the mounted band share.
 
@@ -19,6 +19,10 @@ export const BAND = {
 
 // The moment every test's clock starts at.
 export const NOW = Date.parse('2026-10-11T15:00:00Z')
+
+// A reply on record a minute before the clock's start: the context row has its figure.
+export const REPLIED_AT = NOW - 60_000
+export const replied = (on: On, at: number = REPLIED_AT) => on('state.get', { key: 'cacheAt' }, () => ({ value: { value: at, version: 1 } }))
 
 // A whole `$.session.usage()` answer: the engine always reports a window.
 export const usageOf = (rateLimits: SessionRateLimit[] = [], context: SessionContextUsage = { window: 200_000 }) => ({

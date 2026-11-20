@@ -330,3 +330,18 @@ test('a seed is no change to tell of: the pose it takes up is already known', as
   expect(clawd.takeChange().wanted).toBeNull()
   expect(clawd.wanted).toBe('reading')
 })
+
+test("loading is a rest: a turn's pose, a compaction, an ending and a glance take over from it at once", async () => {
+  const loading = run(taking('loading'), 2).flow
+  for (const pose of ['waiting', 'reading', 'compacting', 'finished', 'idle'] as const) {
+    expect(view(want(loading, pose))).toEqual({ pose, roll: want(loading, pose).roll, frame: 0 })
+  }
+  expect(view(glance(loading, 'running')).pose).toBe('running')
+  // Asked for again while it shows, it goes on.
+  expect(view(want(loading, 'loading')).frame).toBe(1)
+})
+
+test('an ending plays through when loading is asked for, as it does for rest', async () => {
+  const ending = taking('finished')
+  expect(want(ending, 'loading')).toBe(ending)
+})

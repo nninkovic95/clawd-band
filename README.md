@@ -19,10 +19,10 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 
 - **Clawd**: drawn with kitty's graphics protocol in a box of 16 columns by 3 rows, in stop-motion (a few frames, each held for 400 ms). He is the only thing that moves: the mod replaces Claude Code's own spinner with an empty box. Where the terminal draws no picture, the band draws him in text instead: the same frames in the block characters of Claude Code's own logo, 14 columns by 3 rows, and he moves there too. The text Clawd is the drawing's lower three rows, so what a pose holds above his head shows in the picture only.
 - **Model and effort**: the session's model, shortened (`claude-opus-5-5` becomes `Opus 5.5`), then the reasoning effort.
-- **Usage bars**: `7d` is the weekly window, cut into its seven days, and `5h` the five-hour window. Each bar keeps its own colour at any level. The one change is on the weekly bar: once the week is in its last three days and you are using it faster than an even share per day, the unused part of those three days turns to the warning colour.
-- **Context bar**: the context window, labelled with its size (`1m`, `200k`). The percentage beside it is how full the window is, the same figure as the status line's `used_percentage`; before a session's first reply Claude Code has no such figure, so it is the local estimate that `/context` makes. Beside that, a countdown runs until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses, the countdown turns blue and reads `cold`; the next request re-sends the whole context at the cache-write price.
+- **Usage bars**: `7d` is the weekly window, cut into its seven days, and `5h` the five-hour window. Each bar keeps its own colour at any level. The one change is on the weekly bar, a pace warning: once the fill reaches the bar's last two segments (a segment is a day) and fewer segments are left than days remain before the reset, the unused part of those two segments turns to the warning colour. At 80% used, 1.4 segments are unused: with 2.5 days left that is fewer than the days remaining, so it is red; with 1 day left it is not.
+- **Context bar**: the context window, labelled with its size (`1m`, `200k`). The percentage beside it is how full the window is, the same figure as the status line's `used_percentage`; where Claude Code has no such figure after a reply, it is the local estimate that `/context` makes. Until a session's first reply the row is loading (see **Loading**). Beside that, a countdown runs until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses, the countdown turns blue and reads `cold`; the next request re-sends the whole context at the cache-write price.
 - **Countdown**: the time to each window's reset, `04d-07h-31m` for the weekly window and `02h-14m-09s` for the five-hour one. Both are 11 characters wide, so they line up under each other. A window nothing is known of shows `--d---h---m` or `--h---m---s`. A window whose reset time has passed shows 0% and `reset` until the next reply opens a new one.
-- **Loading**: a weekly or five-hour row with no reading yet shows a silver bar of slashes (`/// /// ///`) moving along, and its percentage and countdown dashes spin through `- \ | /`, a frame every 400 ms. The row settles on the figures when the reading arrives. The context row keeps its static `--`.
+- **Loading**: a weekly or five-hour row with no reading yet shows a silver bar of slashes (`/// /// ///`) moving along, and its percentage and countdown dashes spin through `- \ | /`, a frame every 400 ms. The row settles on the figures when the reading arrives. The context row loads the same way until the session's first reply: no percentage or estimate is shown, and no line comes up under the pointer.
 - **Two-digit figures**, `01%` to `99%`, sit beside each bar, so a row never shifts as its figure grows. A dim dot parts the bar from its label and from its figure.
 - **Under the pointer**: point at a row and the band's top row says more about it. For the week and the five hours: how much is used, when the window resets by your clock and, for the week, how long what is left lasts at the pace so far. For the context: its tokens. Nothing is fetched for this; the lines are drawn with the band and shown by the terminal. It needs a terminal that reports the pointer to Claude Code, and has been tried in kitty.
 
@@ -103,7 +103,7 @@ The same options are the plugin's `userConfig` fields, Claude Code's standard wa
 | `bar_color_weekly` | `autoAccept` | The weekly bar's colour. |
 | `bar_color_five_hour` | `suggestion` | The five-hour bar's colour. |
 | `bar_color_context` | `claude` | The context bar's colour. |
-| `bar_color_warning` | `error` | The weekly bar's last three days when the week is being used up ahead of time. |
+| `bar_color_warning` | `error` | The weekly bar's unused cells when its fill is inside the last two segments and fewer segments are left than days to the reset. |
 | `bar_color_empty` | `inactive` | The unfilled part of each bar. |
 | `bar_color_cold` | `blue` | The context bar and its countdown once the prompt cache has gone cold. |
 | `cache_ttl` | `1h` | How long the prompt cache lives after a reply: `1h` or `5m`. Claude Code does not tell plugins which one a session gets; subscriptions get an hour, API keys and usage overage five minutes. |
@@ -142,6 +142,10 @@ The pose follows Claude's current step: waiting for the reply, thinking, replyin
 ### idle
 
 Nothing running. Clawd holds a steaming mug and shuts his eyes over it, or dozes with a "z" drifting up.
+
+### loading
+
+Nothing running, and no reply in this session yet: a new session, a resumed one, or one after `/clear`. Clawd fills up from grey to orange, feet first; three dots come up over his head one by one; or a little screen in his hand blinks a cursor and fills with green lines. The first reply ends it, with `show_context` on or off, and Clawd goes to idle.
 
 ### waiting
 
@@ -194,7 +198,7 @@ Claude's steps can change several times a second, faster than a pose can be read
 - A pose on screen plays four frames (1.6 s) before another takes its place. Of the poses asked for in the meantime, only the latest shows.
 - Between two poses Clawd stands for one frame with nothing in hand, as he does in Claude Code's logo: one prop is put away before the next is taken up.
 - A turn starts with `waiting`. Between two tool calls, `waiting` takes over only once the wait has lasted two seconds, so the last tool's pose plays on through a short gap. A tool that ended before its pose reached the screen still gets its four frames.
-- A turn's ending, a question and idle show at once.
+- A turn's ending, a question, idle and loading show at once, and any pose takes over from idle or loading at once.
 - A pose that comes back within ten seconds goes on with the animation it had.
 
 With `animate` off, the poses still follow the session, each held on its first frame.
@@ -227,7 +231,7 @@ The percentages and reset times are the same ones `/usage` shows. The band keeps
 
 Where Claude Code refuses the account request (`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set, or the session uses an API key), the first three ways are all there is: the bars follow your replies. Use on claude.ai or another device then shows up after the next reply on this machine.
 
-The context bar's figure is Claude Code's own, read each time the band is drawn. Where Claude Code has no figure yet, before a session's first reply, the band shows the estimate `/context` would make: worked out by Claude Code on your machine, asked for once, and sending no request.
+The context bar's figure is Claude Code's own, read each time the band is drawn. Before a session's first reply the row is loading and shows no figure. Where Claude Code has no figure after a reply, the band shows the estimate `/context` would make: worked out by Claude Code on your machine, asked for once, and sending no request.
 
 ## Endpoints
 

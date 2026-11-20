@@ -120,8 +120,11 @@ export const start = (seed: number, pose: Pose = 'idle'): Flow => ({
 
 const playsOnce = (pose: Pose): boolean => POSES[pose].once === true
 
+// The poses of a session with no turn: idle, and loading until the session's first reply.
+const isResting = (pose: Pose): boolean => pose === 'idle' || pose === 'loading'
+
 // Poses with nothing to play out: whatever is wanted next takes their place at once.
-const isRest = (pose: Pose): boolean => pose === 'idle' || playsOnce(pose)
+const isRest = (pose: Pose): boolean => isResting(pose) || playsOnce(pose)
 
 // Poses that cannot wait their turn: rest (see `isRest`), or a question dialog
 // opening, which freezes the band on the frame it shows.
@@ -161,7 +164,7 @@ export const glance = (flow: Flow, pose: Pose, rules: Rules = RULES): Flow => {
 // on screen to have its hold; see `cutsIn` and `isRest` for the ones that show at once.
 export const want = (flow: Flow, pose: Pose, rules: Rules = RULES): Flow => {
   // An ending plays through, and rest follows it anyway.
-  if (playsOnce(flow.pose) && pose === 'idle') return flow
+  if (playsOnce(flow.pose) && isResting(pose)) return flow
   // Whatever the conversation asks for ends the glance.
   const base = {
     ...flow,

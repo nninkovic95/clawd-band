@@ -17,8 +17,8 @@ export const barLayout = (percent: number, segments: number, warned: number): Ba
   warnFrom: warned > 0 ? Math.max(0, (segments - warned) / segments) : 1,
 })
 
-// A stretch of a bar in one look; `warn` marks the weekly bar's last days when
-// the week is being used up ahead of time.
+// A stretch of a bar in one look; `warn` marks the weekly bar's unused cells in its
+// last two segments when the fill is inside them and fewer segments are left than days to the reset.
 // `behind` marks the fill's rounded end: what lies under the rest of its cell.
 export type Run = { text: string; part: 'filled' | 'empty' | 'loading'; warn?: true; behind?: 'empty' | 'warn' }
 

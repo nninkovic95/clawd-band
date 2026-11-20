@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { CLAUDE_ORANGE } from '../hooks/color'
 import { lengthOf, picturesIn, PIXEL_HEIGHT, PIXEL_WIDTH, POSES, SCENES, TEXT_COLUMNS, textIn } from '../hooks/sprite'
 import type { Pose } from '../types'
-import { BAND, core, type Drawn, narrow, nodes, NOW, words } from './band.fixtures'
+import { BAND, core, type Drawn, narrow, nodes, NOW, replied, words } from './band.fixtures'
 
 test('a sprite colour repaints the body only', async () => {
   const px = Uint8Array.fromBase64(picturesIn([0, 0, 255])('plain', 0, 0).rgba)
@@ -56,6 +56,8 @@ test(
   { options: { animate: false, random_poses: false } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
+    // A reply on record: Clawd rests, not loads.
+    replied(on)
     on('ui.render', core)
     on('ui.blit', () => ({ value: {} }))
     // The same frame twice: as the picture in a wide band, as text in a narrow one.
@@ -180,6 +182,8 @@ test('both forms of Clawd sit on the same centre of his column', async ($, on) =
 
 test('in a band too narrow for the picture, no picture is sent and the text Clawd moves', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests, not loads.
+  replied(on)
   on('ui.render', core)
   let blits = 0
   on('ui.blit', (_, e) => {
@@ -232,6 +236,8 @@ test('a picture the band refused is sent again on the next tick', { options: { a
 
 test('a terminal that refuses the picture gets the text Clawd', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests, not loads.
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: { deny: 'the Image draws its alt here: no pictures in a test' } }))
   const ui = await $.ui.mount(BAND)
@@ -244,6 +250,8 @@ test('a terminal that refuses the picture gets the text Clawd', async ($, on) =>
 
 test('the text Clawd moves: resting with a mug, the eyes are shut half the time', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests, not loads.
+  replied(on)
   on('ui.render', core)
   on('ui.blit', () => ({ value: { deny: 'the Image draws its alt here: no pictures in a test' } }))
   const ui = await $.ui.mount(BAND)

@@ -21,7 +21,7 @@ import {
 } from './sprite/core'
 import { delegating, spawning, supervising, pressing, archiving } from './sprite/delegate'
 import { ticking, flagging, pausing, unplugged, barring, deflecting, warning, bugged } from './sprite/endings'
-import { mug, dozing, waiting, pondering, idea, turning, questioning, eitherOr } from './sprite/rest'
+import { mug, dozing, fillingUp, typingDots, bootingUp, waiting, pondering, idea, turning, questioning, eitherOr } from './sprite/rest'
 import { running, playing, prompting, searching, browsing, fetchingWeb } from './sprite/tools'
 import { hammering, laptop, cooking, poring, reading, scrolling, writing, checking } from './sprite/work'
 // Types alone from another file: the render scripts run this one in node as
@@ -60,6 +60,7 @@ type PoseArt = {
 
 export const POSES: Record<Pose, PoseArt> = {
   idle: { alt: 'Clawd resting', variants: [mug, dozing] },
+  loading: { alt: 'Clawd loading until the first reply', variants: [fillingUp, typingDots, bootingUp], outsideTurn: true },
   waiting: { alt: 'Clawd waiting for the reply', variants: [waiting] },
   thinking: { alt: 'Clawd thinking', variants: [pondering, idea, turning] },
   questioning: { alt: 'Clawd asking', variants: [questioning, eitherOr] },

@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { barRuns } from '../hooks/bar'
 import { rowsOf } from '../hooks/rows'
-import { imageOf, pixelOf } from './kit'
+import { imageOf, pixelOf, replied } from './kit'
 import { BAR_STYLES, settings } from '../hooks/settings'
 
 const BAND = {
@@ -99,13 +99,15 @@ test('the rows are the ones left on, top to bottom', async () => {
   const [weekly, fiveHour, context] = rowsOf(READING, settings({})).map(({ detail, ...row }) => ({ ...row, own: row.own.text }))
   expect(weekly).toEqual({ label: '7d', percent: 31, own: 'autoAccept', timer: '02d-09h-00m', isLive: true, segments: 7 })
   expect(fiveHour?.timer).toBe('03h-00m-00s')
+  // No reply yet: the context row is loading, its figure not shown.
   expect(context).toEqual({
     label: '200k',
-    percent: 12,
+    percent: undefined,
     own: 'claude',
     timer: '--h---m---s',
     isLive: false,
     color: undefined,
+    isLoading: true,
   })
 })
 
@@ -120,10 +122,14 @@ test('a window whose time is up reads 0% and "reset", not a row of dashes', asyn
   expect([unknown?.percent, unknown?.timer, unknown?.isLoading]).toEqual([undefined, '--h---m---s', true])
 })
 
-test('before its first reply a session shows the context the engine estimates', async ($, on) => {
+test('before its first reply a session shows no estimate of its context; after it, the estimate where the engine gives no figure', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
-  // No reply has measured the window yet, so the plain figures hold no percentage; the
-  // estimate /context makes is 24000 tokens of 200000.
+  mock.store(on) // a reply's step stores the model it names
+  on('turn.step', async function* ($, e) {
+    yield { kind: 'text', index: 0, text: '' }
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } as never }
+  })
+  // The plain figures hold no percentage; the estimate /context makes is 24000 tokens of 200000.
   let estimates = 0
   on('session.usage', ($, e) => {
     if (!e.breakdown) return usageOf()
@@ -135,6 +141,9 @@ test('before its first reply a session shows the context the engine estimates', 
   on('ui.blit', () => ({ value: {} }))
   const ui = await $.ui.mount(BAND)
   await clock.advance(3000)
+  expect(await ui.find({ type: 'Text', text: '12%' })).toBe(undefined)
+  for await (const chunk of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) expect(chunk.kind).toBe('text')
+  await clock.advance(1000)
   expect(await ui.find({ type: 'Text', text: '12%' })).toBeDefined()
   // Asked for once, however often the band is drawn.
   expect(estimates).toBe(1)
@@ -143,6 +152,7 @@ test('before its first reply a session shows the context the engine estimates', 
 
 test('bar_style draws the bars in that style', { options: { bar_style: 'dots' } }, async ($, on) => {
   mock.clock(on, { now: NOW })
+  replied(on)
   on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   // An empty cell of dots: its bottom row.
@@ -264,6 +274,7 @@ test(
   { options: { cell_ratio: '2.34' } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
+    replied(on)
     // 450000 of a million, nothing loaded before the conversation; the session compacts itself at 667000.
     const breakdown = {
       categories: [{ name: 'Messages', tokens: 450_000, color: 'purple_FOR_SUBAGENTS_ONLY', isDeferred: false, kind: 'used' }],
@@ -299,6 +310,8 @@ test(
 
 test('animate off holds Clawd still', { options: { sprite: 'text', animate: false } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  // A reply on record: Clawd rests, not loads.
+  replied(on)
   on('ui.render', core)
   const ui = await $.ui.mount(BAND)
   let shut = 0

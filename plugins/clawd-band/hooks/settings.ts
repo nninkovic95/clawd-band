@@ -55,7 +55,7 @@ export type Settings = {
   weeklyColor: Paint
   fiveHourColor: Paint
   contextColor: Paint
-  // The weekly bar's last days when the week is used ahead of time.
+  // The weekly bar's unused cells in its last two segments, when the week is used ahead of time.
   warning: Paint
   empty: Paint
   cold: Paint

@@ -99,7 +99,7 @@
     "bar_color_warning": {
       "type": "string",
       "title": "Weekly bar's warned days",
-      "description": "The last 3 days of the weekly bar when the week is being used up ahead of time: a theme key, a colour name or hex.",
+      "description": "The weekly bar's unused cells when its fill is inside the last two segments and fewer segments are left than days to the reset: a theme key, a colour name or hex.",
       "default": "error"
     },
     "bar_color_empty": {

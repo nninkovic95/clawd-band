@@ -1,5 +1,6 @@
 export type Pose =
   | 'idle'
+  | 'loading'
   | 'waiting'
   | 'thinking'
   | 'questioning'

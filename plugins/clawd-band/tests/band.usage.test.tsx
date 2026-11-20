@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { parseAccountUsage } from '../hooks/usage/account'
 import { askKey, expiredKey, mergeUsage, resetExpired, sameUsage, toUsage } from '../hooks/usage/model'
-import { BAND, core, NOW, STILL_BARS, TEXT_BARS, usageOf } from './band.fixtures'
+import { BAND, core, NOW, replied, STILL_BARS, usageOf } from './band.fixtures'
 
 test('usage windows come from the rate limits', async () => {
   expect(toUsage([])).toBe(null)
@@ -128,7 +128,7 @@ const account = (on: On, answer: () => { status: number; text: string }) => {
   return count
 }
 
-test('an answer with no open window is not asked for again', TEXT_BARS, async ($, on) => {
+test('an answer with no open window is not asked for again', STILL_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   let next: string | null = '2026-10-11T15:00:10Z'
@@ -152,7 +152,7 @@ test('a request that fails is tried again, five times at most', STILL_BARS, asyn
   await ui.unmount()
 })
 
-test('a first request that fails and then works fills the bars without a reply', async ($, on) => {
+test('a first request that fails and then works fills the bars without a reply', { options: { animate: false } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   let status = 500
@@ -201,8 +201,9 @@ test('a countdown moves on each second with nothing else happening', async ($, o
 })
 
 // The session's figure comes with no word of its change: the next second shows it.
-test('a context that fills with no reply shows on the next second', async ($, on) => {
+test('a context that fills with no new reply shows on the next second', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
+  replied(on)
   mock.store(on)
   let percent = 10
   on('session.id', () => ({ value: 'one' }))

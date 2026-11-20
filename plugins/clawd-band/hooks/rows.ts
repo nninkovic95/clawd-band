@@ -28,16 +28,16 @@ export type Row = {
 }
 
 const DAY_MS = 86_400_000
-const WARNED_DAYS = 3
+const WARNED_DAYS = 2
 
-// The weekly bar's last days warn once the week is within them and is being
-// used up ahead of time: what is left of it, in days at a day's even share, is
-// fewer than the days to its reset.
+// A pace warning: the weekly bar's last segments warn once its fill is inside them
+// and the segments left, at a day's even share each, are fewer than the days to
+// its reset. How near the reset is does not gate it.
 const isAhead = (window: Window | null | undefined, now: number): boolean => {
   if (window?.percentUsed == null || !window.resetsAt) return false
   const daysLeft = (WEEK * (100 - window.percentUsed)) / 100
   const untilReset = (Date.parse(window.resetsAt) - now) / DAY_MS
-  return untilReset <= WARNED_DAYS && daysLeft < untilReset
+  return daysLeft <= WARNED_DAYS && daysLeft < untilReset
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
@@ -91,12 +91,16 @@ export const rowsOf = ({ usage, context, cacheAt, now }: Reading, settings: Sett
   if (settings.showWeekly) rows.push(windowRow('7d', usage?.sevenDay, settings.weeklyColor, true))
   if (settings.showFiveHour) rows.push(windowRow('5h', usage?.fiveHour, settings.fiveHourColor))
   if (settings.showContext) {
+    // Until the session's first reply the row is loading whole: neither the engine's
+    // figure nor an estimate is shown, and the pointer finds no line under it.
+    const isLoading = cacheAt == null
     const tokens = context?.tokens
-    const detail = context && tokens != null ? `${tokensText(tokens)} of ${tokensText(context.window)}` : undefined
+    const detail = !isLoading && context && tokens != null ? `${tokensText(tokens)} of ${tokensText(context.window)}` : undefined
     rows.push({
       ...(detail ? { detail } : {}),
+      ...(isLoading ? { isLoading: true as const } : {}),
       label: windowLabel(context?.window),
-      percent: context?.percent,
+      percent: isLoading ? undefined : context?.percent,
       own: settings.contextColor,
       timer: cacheTimer,
       isLive: cacheAt != null && !isCold,
