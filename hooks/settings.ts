@@ -1,7 +1,7 @@
 import type { PluginOptions } from 'claude-code'
 
 import type { Rgb, Rgba } from './picture'
-import { CLAUDE_ORANGE, toHex } from './sprite'
+import { CLAUDE_ORANGE, toHex, toRgb } from './color'
 
 // A bar's look: what one cell shows at each step from empty to full.
 export type BarStyle = {
@@ -62,17 +62,8 @@ export type Settings = {
   cacheTtlMs: number
 }
 
-const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i
 // A theme key or a colour name, or hex, which may end in two digits of how solid it is.
 const COLOR = /^(?:[a-z]+|#([0-9a-f]{6})([0-9a-f]{2})?|#([0-9a-f]{3}))$/i
-
-const toRgb = (hex: string): Rgb | null => {
-  const short = HEX.exec(hex.trim())?.[1]
-  if (!short) return null
-  const digits = short.length === 3 ? [...short].map(d => d + d).join('') : short
-  const channel = (at: number) => parseInt(digits.slice(at, at + 2), 16)
-  return [channel(0), channel(2), channel(4)]
-}
 
 // Fonts' cells run from about 1:1.9 to 1:2.5; outside these bounds a value is a slip.
 const RATIO = { least: 1.6, most: 2.8, usual: 2.2 }
@@ -109,9 +100,12 @@ const FAINT = 102
 // picture's colour is, wholly so without its last two digits; any other
 // colour is as solid as the option usually is.
 const paint = (value: unknown, key: keyof typeof DARK, usual = SOLID): Paint => {
-  const [text = key, long, solid, short] = (typeof value === 'string' && COLOR.exec(value.trim())) || []
+  const given = typeof value === 'string' ? value.trim() : ''
+  const match = COLOR.exec(given)
+  const text = match ? given : key
+  const [, long, solid, short] = match ?? []
   const hex = long ?? short
-  const rgb = (hex && toRgb(hex)) || [...DARK[isKnown(text) ? text : key]]
+  const rgb = (hex ? toRgb(hex) : null) ?? [...DARK[isKnown(text) ? text : key]]
   const alpha = solid ? parseInt(solid, 16) : hex ? SOLID : usual
   return { text: hex ? toHex(rgb) : text, rgba: [rgb[0], rgb[1], rgb[2], alpha] }
 }
@@ -124,11 +118,28 @@ const oneOf = <T extends string>(value: unknown, choices: readonly [T, ...T[]]):
 const anyOf = <T extends string>(choices: readonly [T, ...T[]], random: () => number): T =>
   choices[Math.floor(random() * choices.length)] ?? choices[0]
 
+// The on/off options: on unless the person turned it off.
+const SWITCHES = {
+  showModel: 'show_model',
+  animate: 'animate',
+  randomPoses: 'random_poses',
+  turnEndings: 'turn_endings',
+  showWeekly: 'show_weekly',
+  showFiveHour: 'show_five_hour',
+  showContext: 'show_context',
+} as const satisfies Record<string, string>
+
+const switchesOf = (options: PluginOptions) =>
+  Object.fromEntries(Object.entries(SWITCHES).map(([key, name]) => [key, options[name] !== false])) as Record<
+    keyof typeof SWITCHES,
+    boolean
+  >
+
 export const settings = (options: PluginOptions, random: () => number = Math.random): Settings => {
   const parsed = typeof options.sprite_color === 'string' ? toRgb(options.sprite_color) : null
   const custom = parsed && parsed.join() !== CLAUDE_ORANGE.join() ? parsed : null
   return {
-    showModel: options.show_model !== false,
+    ...switchesOf(options),
     // A random Clawd is one of the two that draw.
     sprite:
       options.sprite === 'random'
@@ -139,13 +150,7 @@ export const settings = (options: PluginOptions, random: () => number = Math.ran
     spriteColor: custom ? toHex(custom) : 'claude',
     spriteRgb: custom ?? CLAUDE_ORANGE,
     cellRatio: ratioOf(options.cell_ratio),
-    animate: options.animate !== false,
-    randomPoses: options.random_poses !== false,
-    turnEndings: options.turn_endings !== false,
     barStyle: BAR_STYLES[oneOf(options.bar_style, BAR_STYLE_NAMES)],
-    showWeekly: options.show_weekly !== false,
-    showFiveHour: options.show_five_hour !== false,
-    showContext: options.show_context !== false,
     keepSpinner: options.keep_spinner === true,
     // Not `permission`: some themes draw it the same blue as `suggestion`.
     weeklyColor: paint(options.bar_color_weekly, 'autoAccept'),

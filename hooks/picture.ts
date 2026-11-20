@@ -1,14 +1,3 @@
-declare global {
-  // The runtime's base64 methods on byte arrays; the types this module is
-  // checked against stop a version of the language short of them.
-  interface Uint8Array<TArrayBuffer extends ArrayBufferLike = ArrayBufferLike> {
-    toBase64(): string
-  }
-  interface Uint8ArrayConstructor {
-    fromBase64(text: string): Uint8Array<ArrayBuffer>
-  }
-}
-
 export type Rgb = [number, number, number]
 
 // A colour with how solid it is, 0 clear to 255 solid.

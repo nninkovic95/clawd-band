@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { CLAUDE_ORANGE, lengthOf, picturesIn, PIXEL_WIDTH, POSES, SCALE } from './sprite'
+import { CLAUDE_ORANGE } from './color'
+import { lengthOf, picturesIn, PIXEL_WIDTH, POSES, SCALE } from './sprite'
 
 // The animations as the picture shows them, read back pixel by pixel.
 const draw = picturesIn(CLAUDE_ORANGE)

@@ -1,11 +1,11 @@
 import type { Pose } from '../types'
+// Written with its extension: the render scripts run this file in node as it stands.
+import { CLAUDE_ORANGE, toHex } from './color.ts'
 // Types alone from another file: the render scripts run this one in node as
 // it stands, which resolves no import written without its extension.
 import type { Picture, Rgb } from './picture'
 
 export type { Rgb }
-
-export const toHex = (rgb: Rgb): string => `#${rgb.map(c => c.toString(16).padStart(2, '0')).join('')}`
 
 // Clawd as the CLI prints it at startup (▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝), drawn
 // as a picture: a quadrant is twice as tall as wide, so each logo pixel is one
@@ -33,8 +33,6 @@ export const PICTURE_WIDTH = TEXT_COLUMNS * 2
 export const PICTURE_HEIGHT = PICTURE_ROWS * 4
 export const PIXEL_WIDTH = PICTURE_WIDTH * SCALE
 export const PIXEL_HEIGHT = PICTURE_HEIGHT * SCALE
-
-export const CLAUDE_ORANGE: Rgb = [215, 119, 87]
 
 const COLORS: Record<string, Rgb> = {
   '#': CLAUDE_ORANGE, // the body, replaced by the sprite_color option

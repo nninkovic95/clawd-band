@@ -9,7 +9,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { PICTURE_HEIGHT, PICTURE_WIDTH, CLAUDE_ORANGE, picturesIn, PIXEL_WIDTH, SCALE } from '../hooks/sprite.ts'
+import { PICTURE_HEIGHT, PICTURE_WIDTH, picturesIn, PIXEL_WIDTH, SCALE } from '../hooks/sprite.ts'
+import { CLAUDE_ORANGE } from '../hooks/color.ts'
 
 const SIZE = 1024
 const UNIT = 44 // one art pixel

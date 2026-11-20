@@ -10,7 +10,8 @@ import { pathToFileURL } from 'node:url'
 const source = resolve(process.argv[2] ?? 'hooks/sprite.ts')
 const out = process.argv[3] ?? 'docs/preview/poses.html'
 const sprite = await import(pathToFileURL(source).href)
-const { PICTURE_HEIGHT, PICTURE_WIDTH, CLAUDE_ORANGE, PIXEL_WIDTH, POSES, SCALE, lengthOf, picturesIn, textIn, toHex } = sprite
+const { PICTURE_HEIGHT, PICTURE_WIDTH, PIXEL_WIDTH, POSES, SCALE, lengthOf, picturesIn, textIn } = sprite
+const { CLAUDE_ORANGE, toHex } = await import('../hooks/color.ts')
 
 type Run = { text: string; color: string }
 type Shown = { name: string; alt: string; notes: string[]; frames: { art: string[]; text: Run[][] }[] }

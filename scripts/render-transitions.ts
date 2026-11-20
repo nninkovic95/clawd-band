@@ -24,8 +24,9 @@ registerHooks({
   },
 })
 
-const { PICTURE_HEIGHT, PICTURE_WIDTH, CLAUDE_ORANGE, PIXEL_WIDTH, POSES, SCALE, SCENES, lengthOf, picturesIn, textIn, toHex } =
+const { PICTURE_HEIGHT, PICTURE_WIDTH, PIXEL_WIDTH, POSES, SCALE, SCENES, lengthOf, picturesIn, textIn } =
   await import('../hooks/sprite.ts')
+const { CLAUDE_ORANGE, toHex } = await import('../hooks/color.ts')
 const { BETWEEN, RULES, play, start, view, want } = await import('../hooks/pose.ts')
 
 type Pose = keyof typeof POSES

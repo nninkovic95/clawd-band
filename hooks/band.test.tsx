@@ -1,12 +1,12 @@
 import type { Hook, On, SessionContextUsage, SessionRateLimit } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
+import { CLAUDE_ORANGE } from './color'
 import { barRuns, loadingRuns } from './bar'
 import { cacheCountdown, countdown, windowLabel } from './format'
 import { shortModel, shownPose, withoutEffort } from './register'
 import { BAR_STYLES, settings } from './settings'
 import {
-  CLAUDE_ORANGE,
   lengthOf,
   picturesIn,
   PICTURE_ROWS,

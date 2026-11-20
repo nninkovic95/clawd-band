@@ -17,7 +17,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { boxPixels } from '../hooks/picture.ts'
-import { BOX_COLUMNS, BOX_ROWS, CLAUDE_ORANGE, picturesIn, PIXEL_HEIGHT, POSES } from '../hooks/sprite.ts'
+import { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, POSES } from '../hooks/sprite.ts'
+import { CLAUDE_ORANGE } from '../hooks/color.ts'
 
 type Pose = keyof typeof POSES
 
