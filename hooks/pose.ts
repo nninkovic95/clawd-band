@@ -180,3 +180,111 @@ export const play = (flow: Flow, rules: Rules = RULES): Flow => {
   if (rules.bridge === 0) return takeUp(aged, target, false, rules)
   return { ...aged, bridge: rules.bridge, toward: target }
 }
+
+// What the session asks of Clawd, who still holds the pose, and what the
+// screen shows: one owner of the pose state, with no engine around it.
+export type Poser = {
+  // Set by register from the person's options.
+  rules: Rules
+  // What the screen shows now, as `flow` shows it.
+  readonly shown: Shown
+  // The pose the session is in: what was last asked for, a glance included, which the screen follows.
+  readonly wanted: Pose
+  // The pose the conversation itself last took, under any a subagent set.
+  readonly main: Pose
+  // The conversation takes a pose.
+  want: (pose: Pose) => void
+  // The conversation's tool takes a pose while it runs; the answer ends the hold.
+  hold: (pose: Pose) => () => void
+  // A subagent's tool gets a glance; the answer hands the pose back to the
+  // conversation, unless that has moved on meanwhile.
+  glance: (pose: Pose) => () => void
+  // A module loaded again mid-session takes up the pose the last one left,
+  // as long as nothing has been asked for yet.
+  seed: (pose: Pose) => void
+  // One tick of the frame timer.
+  tick: () => void
+  // Whether the screen changed to a pose or variant, or to another frame at
+  // once, since it was last asked; asking clears it.
+  takeChange: () => boolean
+}
+
+const sameShown = (a: Shown, b: Shown): boolean => a.pose === b.pose && a.roll === b.roll && a.frame === b.frame
+
+export const poser = (rules: Rules, seed: number, pose: Pose = 'idle'): Poser => {
+  let flow = start(seed, pose)
+  let wanted = pose
+  let main = pose
+  // Counts the times a pose was asked for: whoever asked can hand it back only while it is still theirs.
+  let claim = 0
+  let isChanged = false
+  // The conversation's own tool calls still running, oldest first.
+  const tools: { pose: Pose; claim: number }[] = []
+
+  const self: Poser = {
+    rules,
+    get shown() {
+      return view(flow, self.rules)
+    },
+    get wanted() {
+      return wanted
+    },
+    get main() {
+      return main
+    },
+    want: pose => void ask(pose, false),
+    hold: pose => {
+      const running = { pose, claim: ask(pose, false) }
+      tools.push(running)
+      return () => {
+        tools.splice(tools.indexOf(running), 1)
+        // A tool that ends late leaves a newer pose be. One that still has the
+        // pose hands it to a tool running beside it, which holds it from then
+        // on, or else to the wait for the next reply.
+        const beside = tools.at(-1)
+        if (claim !== running.claim) return
+        const handed = ask(beside?.pose ?? 'waiting', false)
+        if (beside) beside.claim = handed
+      }
+    },
+    glance: pose => {
+      // The turn's ending plays through: a subagent still at work does not cut it short.
+      if (POSES[main].once) return () => undefined
+      const mine = ask(pose, true)
+      return () => {
+        if (claim === mine) ask(main, false)
+      }
+    },
+    seed: pose => {
+      if (claim > 0) return
+      wanted = pose
+      main = pose
+      flow = start(flow.seed, pose)
+    },
+    tick: () => {
+      const before = self.shown
+      flow = play(flow, self.rules)
+      // Only a new pose is drawn again whole; the frames after it are swapped in.
+      if (self.shown.pose !== before.pose) isChanged = true
+      // A pose that plays once has played and Clawd rests: the session is at rest too.
+      if (POSES[wanted].once && flow.pose === 'idle') ask('idle', false)
+    },
+    takeChange: () => {
+      const changed = isChanged
+      isChanged = false
+      return changed
+    },
+  }
+
+  function ask(next: Pose, isGlance: boolean): number {
+    claim += 1
+    if (!isGlance) main = next
+    const before = self.shown
+    flow = want(flow, next, isGlance, self.rules)
+    if (!sameShown(before, self.shown)) isChanged = true
+    wanted = next
+    return claim
+  }
+
+  return self
+}

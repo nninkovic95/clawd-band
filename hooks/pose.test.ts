@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Pose } from '../types'
-import { BETWEEN, play, RULES, start, view, want } from './pose'
+import { BETWEEN, play, poser, RULES, start, view, want } from './pose'
 import type { Flow } from './pose'
 import { lengthOf } from './sprite'
 
@@ -189,4 +189,95 @@ test('with variants off every pose plays its first', async () => {
   const seeds = [1, 2, 3, 4, 5]
   expect(seeds.map(seed => want(start(seed), 'working', false, plain).roll)).toEqual([0, 0, 0, 0, 0])
   expect(seeds.some(seed => want(start(seed), 'working').roll !== 0)).toBe(true)
+})
+
+// The poser: what the session asks for, who still holds the pose, and what the
+// screen shows, with no engine around it.
+
+test('a tool that ends after a newer pose was asked for leaves the newer pose be', async () => {
+  const clawd = poser(RULES, 1)
+  const release = clawd.hold('reading')
+  expect(clawd.wanted).toBe('reading')
+  clawd.want('thinking')
+  release()
+  expect(clawd.wanted).toBe('thinking')
+})
+
+test('a tool that ends hands the pose to the wait for the next reply', async () => {
+  const clawd = poser(RULES, 1)
+  clawd.hold('reading')()
+  expect(clawd.wanted).toBe('waiting')
+})
+
+test('of two tools running together, the one that ends first leaves the pose with the other', async () => {
+  const clawd = poser(RULES, 1)
+  const first = clawd.hold('reading')
+  const second = clawd.hold('writing')
+  first()
+  expect(clawd.wanted).toBe('writing')
+  second()
+  expect(clawd.wanted).toBe('waiting')
+})
+
+test('a tool beside the one that held the pose takes it over, and holds it from then on', async () => {
+  const clawd = poser(RULES, 1)
+  const first = clawd.hold('reading')
+  const second = clawd.hold('writing')
+  second()
+  expect(clawd.wanted).toBe('reading')
+  first()
+  expect(clawd.wanted).toBe('waiting')
+})
+
+test('a glance is handed back to the conversation, unless that has moved on', async () => {
+  const clawd = poser(RULES, 1)
+  clawd.want('working')
+  const back = clawd.glance('reading')
+  expect(clawd.wanted).toBe('reading')
+  back()
+  expect(clawd.wanted).toBe('working')
+  const late = clawd.glance('running')
+  clawd.want('thinking')
+  late()
+  expect(clawd.wanted).toBe('thinking')
+})
+
+test('a glance leaves an ending to play through, and hands nothing back', async () => {
+  const clawd = poser(RULES, 1)
+  clawd.want('finished')
+  const back = clawd.glance('reading')
+  expect(clawd.wanted).toBe('finished')
+  back()
+  expect(clawd.wanted).toBe('finished')
+  expect(clawd.main).toBe('finished')
+})
+
+test('an ending that has played leaves the session at rest', async () => {
+  const clawd = poser(RULES, 1)
+  clawd.want('finished')
+  for (let n = 0; n < lengthOf('finished', clawd.shown.roll) + 2; n++) clawd.tick()
+  expect(clawd.shown.pose).toBe('idle')
+  expect(clawd.wanted).toBe('idle')
+  expect(clawd.main).toBe('idle')
+})
+
+test('a module loaded again takes up the pose the last one left, until a pose is asked for', async () => {
+  const clawd = poser(RULES, 1)
+  clawd.seed('reading')
+  expect(clawd.wanted).toBe('reading')
+  expect(clawd.shown.pose).toBe('reading')
+  clawd.want('writing')
+  clawd.seed('running')
+  expect(clawd.wanted).toBe('writing')
+})
+
+test('it says when the screen changed, once, and a frame of the same pose is no change', async () => {
+  const clawd = poser(RULES, 1)
+  expect(clawd.takeChange()).toBe(false)
+  clawd.want('waiting')
+  expect(clawd.takeChange()).toBe(true)
+  expect(clawd.takeChange()).toBe(false)
+  clawd.tick()
+  clawd.tick()
+  expect(clawd.takeChange()).toBe(false)
 })

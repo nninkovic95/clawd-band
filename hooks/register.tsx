@@ -5,14 +5,14 @@ import type { Model, Pose } from '../types'
 import { band, fit, PROBE, rowsOf } from './band'
 import { estimatedTokens, syncContext } from './context'
 import type { Clawd } from './band'
-import { play, RULES, start, view, want } from './pose'
-import type { Flow, Rules } from './pose'
+import { poser, RULES } from './pose'
+import type { Rules } from './pose'
 import { offerCommand, settingsPanel } from './panel'
 import { boxPixels } from './picture'
 import type { Picture } from './picture'
 import { settings } from './settings'
 import type { Settings } from './settings'
-import { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, POSES, SCENES, textIn } from './sprite'
+import { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, SCENES, textIn } from './sprite'
 import type { Draw, Scene, TextFrame } from './sprite'
 import { field, resetExpired, setUsage, syncUsage } from './usage'
 
@@ -103,27 +103,14 @@ let drawText = textIn(config.spriteColor)
 
 // The pose rules, with the person's say on motion.
 const rulesOf = (): Rules => ({ ...RULES, animate: config.animate, vary: config.randomPoses })
-let rules = rulesOf()
 
-const newFlow = (pose?: Pose): Flow => start(Math.floor(Math.random() * 0x7fffffff), pose)
+// The one owner of the pose state; a reload starts it over.
+const posing = poser(rulesOf(), Math.floor(Math.random() * 0x7fffffff))
+// The pose last written to the atom other mods read.
+let published: Pose = 'idle'
 
 // The timer reads these between draws; a reload starts them over.
 const live: {
-  // What the band draws: the pose or the plain body between two, its variant
-  // and its frame, as `flow` shows them.
-  pose: Scene
-  roll: number
-  frame: number
-  // Which pose shows when: the wanted poses go in, the three values above come out.
-  flow: Flow
-  // The pose the session is in: what was last asked for, which the screen follows.
-  wanted: Pose
-  // The pose the conversation itself last took, under any a subagent set.
-  main: Pose
-  // Counts the times the pose was set: see setPose.
-  claim: number
-  // The conversation's own tool calls still running, oldest first.
-  tools: { pose: Pose; claim: number }[]
   isCompacting: boolean
   isWorking: boolean
   bandId: string | null
@@ -143,14 +130,6 @@ const live: {
   // The rows of the last draw, as text: a second that leaves them so draws nothing.
   rowsDrawn: string | null
 } = {
-  pose: 'idle',
-  roll: 0,
-  frame: 0,
-  flow: newFlow(),
-  wanted: 'idle',
-  main: 'idle',
-  claim: 0,
-  tools: [],
   isCompacting: false,
   isWorking: false,
   bandId: null,
@@ -167,42 +146,30 @@ const live: {
   rowsDrawn: null,
 }
 
-const shown = (): Scene => shownPose(live.pose, live.isWorking)
+// What the band draws: the pose or the plain body between two, its variant and its frame.
+const look = (): [Scene, number, number] => {
+  const { pose, roll, frame } = posing.shown
+  return [shownPose(pose, live.isWorking), roll, frame]
+}
 
 // A picture is wanted wherever the terminal draws one: Clawd's, or the bars'.
 const wantsPictures = (): boolean => config.sprite === 'picture' || config.barStyle.isPicture === true
 
-// Copies what the flow shows into the values the band draws from, and answers
-// whether any of them changed.
-const show = (): boolean => {
-  const { pose, roll, frame } = view(live.flow, rules)
-  const isChanged = pose !== live.pose || roll !== live.roll || frame !== live.frame
-  live.pose = pose
-  live.roll = roll
-  live.frame = frame
-  return isChanged
-}
-
-// The one place the pose changes: what the flow is asked for, and the state
-// other mods can read, which is the wanted pose, ahead of the screen. It
-// answers a number that stays `live.claim` until the pose is set again, so
-// whoever set a pose can hand it back only while it is still theirs.
-async function setPose($: EngineInterface, next: Pose, isSubagent = false): Promise<number> {
-  live.claim += 1
-  const claim = live.claim
-  if (!isSubagent) live.main = next
-  live.flow = want(live.flow, next, isSubagent, rules)
-  // Only a pose that cuts in changes the screen here; any other waits for a tick.
-  if (show()) $.ui.invalidate('ui.render')
-  if (next !== live.wanted) {
-    live.wanted = next
-    await update($, poseAtom, () => next)
+// Tells the screen and the other mods what the poser's last change leaves to
+// tell: the screen redrawn where a pose cut in, and the wanted pose, ahead of
+// the screen, in the state other mods can read.
+async function publish($: EngineInterface) {
+  if (posing.takeChange()) $.ui.invalidate('ui.render')
+  if (posing.wanted !== published) {
+    published = posing.wanted
+    await update($, poseAtom, () => published)
   }
-  return claim
 }
 
-async function handBack($: EngineInterface, claim: number, next: Pose) {
-  if (live.claim === claim) await setPose($, next)
+// The conversation takes a pose.
+async function ask($: EngineInterface, pose: Pose) {
+  posing.want(pose)
+  await publish($)
 }
 
 // How the engine words its refusal to swap a picture the terminal cannot draw:
@@ -236,11 +203,11 @@ async function probe($: EngineInterface, isNewSecond: boolean) {
 async function showFrame($: EngineInterface) {
   if (!live.bandId) return
   if (live.form === 'text') {
-    if (drawText(shown(), live.roll, live.frame) !== live.drawn) $.ui.invalidate('ui.render')
+    if (drawText(...look()) !== live.drawn) $.ui.invalidate('ui.render')
     return
   }
   if (live.form !== 'picture') return
-  const source = drawPicture(shown(), live.roll, live.frame)
+  const source = drawPicture(...look())
   if (source === live.sent) return
   // A band taken down between draws refuses too; the next render places it again.
   const answer = await $.ui.blit({ requestId: live.bandId, key: 'clawd', source }).catch(() => null)
@@ -311,18 +278,10 @@ async function everySecond($: EngineInterface, now: number) {
 // changes, the once-a-second work and a redraw where the rows moved.
 async function tick($: EngineInterface) {
   live.tickedAt = Date.now()
-  const drawn = live.pose
-  live.flow = play(live.flow, rules)
-  show()
-  // A new pose is drawn again whole, so the picture's alt and the next
-  // repaint are of the pose on screen; its frames after that are swapped in.
-  if (live.pose !== drawn) $.ui.invalidate('ui.render')
-  // A pose that plays once has played and Clawd rests: the session is at rest too.
-  if (POSES[live.wanted].once && live.flow.pose === 'idle') await setPose($, 'idle')
+  posing.tick()
+  await publish($)
   // A compaction whose end the spinner did not tell: no turn is running, so it is over.
-  if (live.main === 'compacting' && !live.isWorking) {
-    await setPose($, 'idle')
-  }
+  if (posing.main === 'compacting' && !live.isWorking) await ask($, 'idle')
   const now = await $.clock.now()
   const second = Math.floor(now / 1000)
   const isNewSecond = second !== live.second
@@ -338,11 +297,8 @@ async function tick($: EngineInterface) {
 const STALLED_MS = 2_000
 
 const seedPose = (pose: Pose) => {
-  if (live.claim > 0) return
-  live.wanted = pose
-  live.main = pose
-  live.flow = newFlow(pose)
-  show()
+  posing.seed(pose)
+  published = posing.wanted
 }
 
 // Called by every hook. A resumed session can load the module without raising
@@ -366,7 +322,7 @@ export const register: Register = (on, options) => {
   config = settings(options)
   drawPicture = boxedPictures(config)
   drawText = textIn(config.spriteColor)
-  rules = rulesOf()
+  posing.rules = rulesOf()
   settingsPanel(on)
 
   on('session.start', async ($, e, next) => {
@@ -385,7 +341,7 @@ export const register: Register = (on, options) => {
     ensureStarted($)
     // A subagent's turn is not the conversation's. The turn opens on the
     // wait for its first reply, the pose its first step asks for too.
-    if (e.agentId === undefined) await setPose($, 'waiting')
+    if (e.agentId === undefined) await ask($, 'waiting')
     return next(e)
   })
 
@@ -397,11 +353,11 @@ export const register: Register = (on, options) => {
     const stream = next(e)
     if (e.agentId) return yield* stream
     await setModel($, { name: e.model, effort: e.effort === undefined ? undefined : String(e.effort) })
-    await setPose($, 'waiting')
+    await ask($, 'waiting')
     for await (const chunk of stream) {
-      if (chunk.kind === 'thinking') await setPose($, 'thinking')
-      else if (chunk.kind === 'text') await setPose($, 'working')
-      else if (chunk.kind === 'tool') await setPose($, poseFor(chunk.name))
+      if (chunk.kind === 'thinking') await ask($, 'thinking')
+      else if (chunk.kind === 'text') await ask($, 'working')
+      else if (chunk.kind === 'tool') await ask($, poseFor(chunk.name))
       yield chunk
     }
     const result = await stream.result
@@ -418,29 +374,23 @@ export const register: Register = (on, options) => {
     ensureStarted($)
     const tool = String(e.tool)
     if (e.agentId !== undefined) {
-      // The turn's ending plays through: a subagent still at work does not cut it short.
-      if (POSES[live.main].once) return next(e)
       // A subagent's tool gets a glance; then Clawd is back at what the
       // conversation itself is doing, unless that has moved on meanwhile.
-      const claim = await setPose($, poseFor(tool), true)
-      $.clock.after(GLANCE_MS, () => void handBack($, claim, live.main).catch(() => undefined))
+      const handBack = posing.glance(poseFor(tool))
+      await publish($)
+      $.clock.after(GLANCE_MS, () => {
+        handBack()
+        void publish($).catch(() => undefined)
+      })
       return next(e)
     }
-    const running = { pose: poseFor(tool), claim: 0 }
-    running.claim = await setPose($, running.pose)
-    live.tools.push(running)
+    const release = posing.hold(poseFor(tool))
+    await publish($)
     try {
       return await next(e)
     } finally {
-      live.tools = live.tools.filter(other => other !== running)
-      // A tool that ends late leaves a newer pose be. One that still has the
-      // pose hands it to a tool running beside it, which holds it from then
-      // on, or else to the wait for the next reply.
-      const beside = live.tools.at(-1)
-      if (live.claim === running.claim) {
-        const claim = await setPose($, beside?.pose ?? 'waiting')
-        if (beside) beside.claim = claim
-      }
+      release()
+      await publish($)
     }
   }).catch(($, e, next) => next(e))
 
@@ -449,7 +399,7 @@ export const register: Register = (on, options) => {
     // Only the conversation's own turn has an ending; `reason` is all that is read of it.
     // With the endings turned off, the turn's end is rest.
     if (e.agentId === undefined) {
-      await setPose($, config.turnEndings ? ENDINGS[e.reason] : 'idle')
+      await ask($, config.turnEndings ? ENDINGS[e.reason] : 'idle')
     }
     await refreshUsage($).catch(() => undefined)
     return next(e)
@@ -464,9 +414,9 @@ export const register: Register = (on, options) => {
     if (isCompacting !== live.isCompacting) {
       live.isCompacting = isCompacting
       const turnPose = async () => {
-        if (isCompacting) await setPose($, 'compacting')
+        if (isCompacting) await ask($, 'compacting')
         // The turn goes on with a new reply to wait for; with no turn, Clawd rests.
-        else if (live.main === 'compacting') await setPose($, live.isWorking ? 'waiting' : 'idle')
+        else if (posing.main === 'compacting') await ask($, live.isWorking ? 'waiting' : 'idle')
       }
       // After the draw: state set while a hook draws is dropped.
       $.clock.after(0, () => void turnPose().catch(() => undefined))
@@ -497,11 +447,11 @@ export const register: Register = (on, options) => {
     const rows = await rowsAt($, now)
     live.rowsDrawn = JSON.stringify(rows)
 
-    const current = shown()
+    const looks = look()
     const pictures = wantsPictures() ? live.pictures : null
-    const text = drawText(current, live.roll, live.frame)
+    const text = drawText(...looks)
     // No picture where the terminal draws none, or the person asked for text.
-    const picture = pictures && config.sprite === 'picture' ? { source: drawPicture(current, live.roll, live.frame), alt: SCENES[current].alt } : null
+    const picture = pictures && config.sprite === 'picture' ? { source: drawPicture(...looks), alt: SCENES[looks[0]].alt } : null
     const clawd: Clawd | null = config.sprite === 'off' ? null : { text, picture }
     const name = model.name ? shortModel(model.name) : '--'
     // Everything turned off: the row above the prompt is not the mod's.
