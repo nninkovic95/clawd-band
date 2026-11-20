@@ -1,61 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, SessionRateLimit } from 'claude-code'
 
-import type { Usage, Window } from '../types'
+import { merging } from '../merge'
+import type { Usage } from '../../types'
+import { askKey, mergeUsage, sameUsage, toUsage } from './model'
+import { asStoredUsage, field } from './store'
 
+// Spelled in the module that updates it: the engine's scan reads no atom imported from another.
 const usageAtom = atom({ plugin: 'clawd-band', key: 'usage' } as const, null)
-
-const toWindow = (limits: readonly SessionRateLimit[], kind: string): Window | null => {
-  const found = limits.find(l => l.kind === kind)
-  return found ? { percentUsed: found.percentUsed, resetsAt: found.resetsAt ?? null } : null
-}
-
-export const toUsage = (limits: readonly SessionRateLimit[]): Usage | null =>
-  limits.length === 0 ? null : { fiveHour: toWindow(limits, 'five_hour'), sevenDay: toWindow(limits, 'seven_day') }
-
-// A window whose reset has passed is empty: 0% until the next request starts a
-// new one and a response reports its reset.
-export const resetExpired = (usage: Usage | null, now: number): Usage | null => {
-  if (!usage) return null
-  const live = (w: Window | null) =>
-    w?.resetsAt && Date.parse(w.resetsAt) <= now ? { percentUsed: 0, resetsAt: null } : w
-  return { fiveHour: live(usage.fiveHour), sevenDay: live(usage.sevenDay) }
-}
-
-// A reading names only the windows it has; one it leaves out keeps its last value.
-export const mergeUsage = (current: Usage | null | undefined, fresh: Usage | null): Usage | null => {
-  if (!fresh) return current ?? null
-  return { fiveHour: fresh.fiveHour ?? current?.fiveHour ?? null, sevenDay: fresh.sevenDay ?? current?.sevenDay ?? null }
-}
-
-const sameWindow = (a: Window | null | undefined, b: Window | null | undefined) =>
-  (a?.percentUsed ?? null) === (b?.percentUsed ?? null) && (a?.resetsAt ?? null) === (b?.resetsAt ?? null)
-
-export const sameUsage = (a: Usage | null | undefined, b: Usage | null | undefined): boolean =>
-  sameWindow(a?.fiveHour, b?.fiveHour) && sameWindow(a?.sevenDay, b?.sevenDay)
-
-// What the store holds: a reading and when it was taken. Every session of the
-// account shares the one store, so the newest reading reaches them all.
-export type StoredUsage = { usage: Usage; readAt: number }
-
-export const field = (value: unknown, key: string): unknown =>
-  value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined
-
-const asWindow = (value: unknown): Window | null => {
-  const percentUsed = field(value, 'percentUsed')
-  const resetsAt = field(value, 'resetsAt')
-  if (typeof percentUsed !== 'number') return null
-  return { percentUsed, resetsAt: typeof resetsAt === 'string' ? resetsAt : null }
-}
-
-// A stored value, checked. One written before readings carried their time
-// counts as the oldest there is.
-export const asStoredUsage = (value: unknown): StoredUsage | null => {
-  const usage = { fiveHour: asWindow(field(value, 'fiveHour')), sevenDay: asWindow(field(value, 'sevenDay')) }
-  if (!usage.fiveHour && !usage.sevenDay) return null
-  const readAt = field(value, 'readAt')
-  return { usage, readAt: typeof readAt === 'number' ? readAt : 0 }
-}
 
 const USAGE_WINDOWS = ['five_hour', 'seven_day']
 
@@ -77,20 +29,6 @@ export const parseAccountUsage = (text: string): SessionRateLimit[] => {
     return [{ kind, percentUsed: Math.round(utilization * 10) / 10, resetsAt: reset }]
   })
 }
-
-// The reset times of the windows that have run out, joined. Null while every
-// window still has time left.
-export const expiredKey = (usage: Usage | null | undefined, now: number): string | null => {
-  const gone = [usage?.fiveHour?.resetsAt, usage?.sevenDay?.resetsAt].filter(
-    (r): r is string => !!r && Date.parse(r) <= now,
-  )
-  return gone.length > 0 ? gone.join() : null
-}
-
-// What an account request would settle, as one word; null while the reading is
-// live. `isStale` is a reading that was already old when the session loaded.
-export const askKey = (usage: Usage | null | undefined, isStale: boolean, now: number): string | null =>
-  !usage ? 'none' : (expiredKey(usage, now) ?? (isStale ? 'stale' : null))
 
 type Answer = { limits: SessionRateLimit[] } | { reason: string; isFinal: boolean }
 
@@ -143,9 +81,6 @@ const sync: {
   nextAt: number
   isAsking: boolean
   reason: string
-  // When this copy first saw the session, and the session it last left a note for.
-  since: number
-  noted: string | null
 } = {
   readAt: 0,
   kept: null,
@@ -156,8 +91,6 @@ const sync: {
   nextAt: 0,
   isAsking: false,
   reason: '',
-  since: 0,
-  noted: null,
 }
 
 async function keep($: EngineInterface, usage: Usage | null, readAt: number) {
@@ -172,11 +105,8 @@ export async function setUsage($: EngineInterface, limits: readonly SessionRateL
   if (limits.length === 0) return
   sync.readAt = now
   sync.isStale = false
-  const usage = await update($, usageAtom, (current: Usage | null | undefined) => {
-    const merged = mergeUsage(current, toUsage(limits))
-    return sameUsage(current, merged) ? (current ?? null) : merged
-  })
-  await keep($, usage, now)
+  const value = await update($, usageAtom, merging(current => mergeUsage(current, toUsage(limits)), sameUsage).step)
+  await keep($, value, now)
 }
 
 // A newer reading another session stored, or the stored one where this
@@ -188,22 +118,14 @@ async function adoptStored($: EngineInterface) {
   if (current && stored.readAt <= sync.readAt) return
   sync.readAt = Math.max(sync.readAt, stored.readAt)
   sync.kept = stored.usage
-  await update($, usageAtom, (now: Usage | null | undefined) => {
-    const merged = mergeUsage(now, stored.usage)
-    return sameUsage(now, merged) ? (now ?? null) : merged
-  })
+  await update($, usageAtom, merging(now => mergeUsage(now, stored.usage), sameUsage).step)
 }
 
 // Once per session: what the session already knows fills the windows nothing
 // newer has filled, and a reading older than a few minutes is marked stale.
 async function loadSessionReading($: EngineInterface, now: number) {
   const session = toUsage((await $.session.usage()).rateLimits)
-  if (session) {
-    await update($, usageAtom, (current: Usage | null | undefined) => {
-      const merged = mergeUsage(session, current ?? null)
-      return sameUsage(current, merged) ? (current ?? null) : merged
-    })
-  }
+  if (session) await update($, usageAtom, merging(current => mergeUsage(session, current ?? null), sameUsage).step)
   sync.isStale = now - sync.readAt > STALE_MS
 }
 
@@ -237,29 +159,6 @@ async function askAccount($: EngineInterface, now: number) {
   }
 }
 
-const WINDOWS = ['fiveHour', 'sevenDay'] as const
-const MISSING_AFTER_MS = 5_000
-
-// A usage row with nothing to show some seconds into a session is a fault to
-// find, or an account with no such window. What this copy knew then is kept
-// in the store under `missing`, once a session: nothing else outlives it.
-async function noteMissing($: EngineInterface, now: number, sessionId: string) {
-  if (sync.noted === sessionId || now - sync.since < MISSING_AFTER_MS) return
-  const usage = await read($, usageAtom)
-  const missing = WINDOWS.filter(name => !usage?.[name])
-  if (missing.length === 0) return
-  sync.noted = sessionId
-  const stored = asStoredUsage(await $.store.get('usage'))?.usage
-  await $.store.set('missing', {
-    at: new Date(now).toISOString(),
-    session: sessionId,
-    missing,
-    stored: WINDOWS.filter(name => stored?.[name]),
-    reported: (await $.session.usage()).rateLimits.map(limit => limit.kind),
-    account: sync.reason || 'not asked',
-  })
-}
-
 // Run once a second: the store first (no network), then the session's own
 // reading when the session is new, then the account if the reading is not live.
 export async function syncUsage($: EngineInterface, now: number, sessionId: string) {
@@ -268,11 +167,9 @@ export async function syncUsage($: EngineInterface, now: number, sessionId: stri
     // Marked first, so a slow pass is not joined by the next second's; a
     // failed one is tried again.
     sync.session = sessionId
-    sync.since = now
     await loadSessionReading($, now).catch(() => {
       sync.session = null
     })
   }
   await askAccount($, now)
-  await noteMissing($, now, sessionId).catch(() => undefined)
 }

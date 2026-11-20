@@ -16,7 +16,10 @@ import { terminal } from './terminal'
 import type { Screen } from './terminal'
 import { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, SCENES, textIn } from './sprite'
 import type { Draw, Scene } from './sprite'
-import { field, resetExpired, setUsage, syncUsage } from './usage'
+import { merging } from './merge'
+import { setUsage, syncUsage } from './usage/account'
+import { resetExpired } from './usage/model'
+import { field } from './usage/store'
 
 const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
 // Written by usage.ts; an atom is named in each file that reads it.
@@ -75,15 +78,15 @@ export const shortModel = (model: string): string => {
 }
 
 async function setModel($: EngineInterface, next: Partial<Model>) {
-  let changed: Model | null = null
-  await update($, modelAtom, (current: Model | undefined) => {
-    const base = current ?? { name: null, effort: null }
-    const merged = { name: next.name ?? base.name, effort: next.effort ?? base.effort }
-    if (merged.name === base.name && merged.effort === base.effort) return base
-    changed = merged
-    return merged
-  })
-  if (changed) await $.store.set('model', changed)
+  const merge = merging<Model>(
+    current => {
+      const base = current ?? { name: null, effort: null }
+      return { name: next.name ?? base.name, effort: next.effort ?? base.effort }
+    },
+    (a, b) => (a?.name ?? null) === (b?.name ?? null) && (a?.effort ?? null) === (b?.effort ?? null),
+  )
+  const value = await update($, modelAtom, merge.step)
+  if (merge.changed()) await $.store.set('model', value)
 }
 
 // session.measure is raised only when a window moves a whole point, so a new

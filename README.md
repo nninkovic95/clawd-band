@@ -236,7 +236,7 @@ The mod contacts one host with one request. Everything else it does goes through
 | --- | --- | --- | --- |
 | `GET https://api.anthropic.com/api/oauth/usage` | Only while the band has no live usage reading (way 4 above), and never when both usage bars are off | Your own claude.ai sign-in, attached by Claude Code (the mod never sees the token), and the header `anthropic-beta: oauth-2025-04-20`. No body. | Your five-hour and weekly usage percentages and reset times: what `/usage` shows |
 
-The request is made in `hooks/usage.ts` (`fetchAccountUsage`). [Privacy](#privacy) has the rest: the retries, what ends them, and what is kept.
+The request is made in `hooks/usage/account.ts` (`fetchAccountUsage`). [Privacy](#privacy) has the rest: the retries, what ends them, and what is kept.
 
 ## Privacy
 
@@ -262,7 +262,6 @@ This section is clawd-band's privacy policy: what the mod reads, stores and send
 **What it stores,** in Claude Code's own plugin store on your machine:
 
 - The last usage reading with the time it was taken, and the last model and effort. Your sessions on the machine share that store, which is how one session's reading reaches the others and how the band is filled at startup. A cached effort is shown only for the same model. Each new reading replaces the old one.
-- One diagnostic note, written only when a usage bar is still empty five seconds into a session: the time, the session id, which window is missing, which windows the store held, which windows Claude Code reported, and the one-word outcome of the account request. Each new note replaces the last.
 
 Uninstalling the plugin and deleting its store removes all of it.
 
@@ -294,7 +293,7 @@ Calls it makes on Claude Code:
 | --- | --- |
 | `$.clock.every`, `$.clock.after`, `$.clock.now` | The one timer that drives the frames and the countdowns |
 | `$.state.get`, `$.state.set` | Its own state: the pose, the usage reading, the model, when the cache was last written |
-| `$.store.get`, `$.store.set` | The plugin store: the shared usage reading, the model, the diagnostic note |
+| `$.store.get`, `$.store.set` | The plugin store: the shared usage reading, the model |
 | `$.session.id`, `$.session.model`, `$.session.usage` | The session's id, model, rate-limit readings and context figure, and the context's estimated size where there is no figure yet (the local `summary` form, which sends no request) |
 | `$.session.authorize`, `$.http.fetch` | The one request under [Endpoints](#endpoints) |
 | `$.ui.blit` | Swap Clawd's picture for the next frame; ask whether the terminal draws pictures |
@@ -306,7 +305,7 @@ Calls it makes on Claude Code:
 
 It runs no commands, reads no files and reads no environment variables.
 
-Where the code lives: the band's drawing in `hooks/band.tsx`, the pill bars in `hooks/pill.ts`, the checked options in `hooks/settings.ts`, the usage readings in `hooks/usage.ts`, the context estimate in `hooks/context.ts`, the settings panel in `hooks/panel.tsx`, the sprites in `hooks/sprite.ts` and the rules for which pose shows when in `hooks/pose.ts`.
+Where the code lives: the band's drawing in `hooks/band.tsx`, the pill bars in `hooks/pill.ts`, the checked options in `hooks/settings.ts`, the usage readings in `hooks/usage/` (`model.ts` the reading, `store.ts` what the store holds, `account.ts` the request and its retries) and the merge step they share in `hooks/merge.ts`, the context estimate in `hooks/context.ts`, the settings panel in `hooks/panel.tsx`, the sprites in `hooks/sprite.ts` and the rules for which pose shows when in `hooks/pose.ts`.
 
 ## Development
 
@@ -315,17 +314,17 @@ claude plugin validate .
 claude plugin test .
 ```
 
-`claude plugin test` runs eight test files in `hooks/`:
+`claude plugin test` runs nine test files in `hooks/`:
 
 | File | What it covers |
 | --- | --- |
 | `band.test.tsx` | Pose mapping and the pose through a turn, usage parsing and merging, a reading taken over from another session, the account request and its retries, countdowns, whole frames, the band's layout at every width, the text Clawd, a `/clear` reload |
 | `options.test.tsx` | The bar styles and their steps, the choices and a random Clawd, which rows show, Clawd as text or off, the model line, an ended window, a saved value of an option or a style that is gone |
 | `picture.test.tsx` | Clawd's picture and its box, the pill bars pixel by pixel, the fall back to text and the way back, a very wide window |
-| `usage.test.tsx` | The diagnostic note for a usage bar that stays empty |
 | `context.test.tsx` | The estimate for a session Claude Code has no context figure for and when it is asked, the rows' lines under the pointer, the context bar as one fill at every width |
 | `panel.test.tsx` | `/clawd`: the command, the panel's controls, what acting on them changes |
 | `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring |
+| `merge.test.ts` | The merge step that usage readings and the model share |
 | `pose.test.ts` | The pose rules with no session around them: the hold, the plain body between two poses, bursts, endings, glances, a compaction |
 
 Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.

@@ -19,16 +19,9 @@ import {
   textIn,
 } from './sprite'
 import type { Pose } from '../types'
-import {
-  askKey,
-  asStoredUsage,
-  expiredKey,
-  mergeUsage,
-  parseAccountUsage,
-  resetExpired,
-  sameUsage,
-  toUsage,
-} from './usage'
+import { parseAccountUsage } from './usage/account'
+import { askKey, expiredKey, mergeUsage, resetExpired, sameUsage, toUsage } from './usage/model'
+import { asStoredUsage } from './usage/store'
 
 const BAND = {
   plugin: 'clawd-band',
