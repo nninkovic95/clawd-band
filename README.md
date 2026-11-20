@@ -315,7 +315,7 @@ claude plugin validate plugins/clawd-band
 claude plugin test plugins/clawd-band
 ```
 
-`claude plugin test` runs the test files in `plugins/clawd-band/hooks/`. The band's tests are split by concern into `band.test.tsx`, `band.bars.test.tsx`, `band.usage.test.tsx`, `band.poses.test.tsx`, `band.sprite.test.tsx` and `band.loading.test.tsx`, which share `band.fixtures.tsx`. The first one's row below describes them all:
+`claude plugin test` runs the test files in `plugins/clawd-band/tests/`, with the helpers they share (`kit.tsx`, `band.fixtures.tsx`). The band's tests are split by concern into `band.test.tsx`, `band.bars.test.tsx`, `band.usage.test.tsx`, `band.poses.test.tsx`, `band.sprite.test.tsx` and `band.loading.test.tsx`, which share `band.fixtures.tsx`. The first one's row below describes them all:
 
 | File | What it covers |
 | --- | --- |

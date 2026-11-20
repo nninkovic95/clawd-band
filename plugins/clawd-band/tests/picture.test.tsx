@@ -2,8 +2,8 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
-import { pill } from './pill'
-import { settings } from './settings'
+import { pill } from '../hooks/pill'
+import { settings } from '../hooks/settings'
 
 const ORANGE = [215, 119, 87, 255]
 

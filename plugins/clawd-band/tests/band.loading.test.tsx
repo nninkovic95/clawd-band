@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { loadingRuns } from './bar'
+import { loadingRuns } from '../hooks/bar'
 import { BAND, core, NOW, STILL_BARS, TEXT_BARS, usageOf } from './band.fixtures'
 
 test('the bar of a row still loading is slashes with a gap in each four, moving a cell a frame to the right', () => {

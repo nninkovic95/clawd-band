@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { barRuns } from './bar'
-import { BAR_STYLES } from './settings'
+import { barRuns } from '../hooks/bar'
+import { BAR_STYLES } from '../hooks/settings'
 import { BAND, core, type Drawn, narrow, nodes, NOW, TEXT_BARS, usageOf, words } from './band.fixtures'
 
 // The blocks style without its round ends, for the tests of days and marks: the ends have

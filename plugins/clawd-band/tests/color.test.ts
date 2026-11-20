@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { CLAUDE_ORANGE, toHex, toRgb } from './color'
+import { CLAUDE_ORANGE, toHex, toRgb } from '../hooks/color'
 
 test('a colour is hex both ways, short or long, with or without the #', () => {
   expect(toHex(CLAUDE_ORANGE)).toBe('#d77757')

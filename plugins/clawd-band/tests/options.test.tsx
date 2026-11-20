@@ -1,10 +1,10 @@
 import type { Hook, SessionContextBreakdown, SessionContextUsage, SessionRateLimit } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { barRuns } from './bar'
-import { rowsOf } from './rows'
+import { barRuns } from '../hooks/bar'
+import { rowsOf } from '../hooks/rows'
 import { imageOf, pixelOf } from './kit'
-import { BAR_STYLES, settings } from './settings'
+import { BAR_STYLES, settings } from '../hooks/settings'
 
 const BAND = {
   plugin: 'clawd-band',

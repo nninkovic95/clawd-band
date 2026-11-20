@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { quietly } from './quiet'
+import { quietly } from '../hooks/quiet'
 
 // The runtime has no unhandled-rejection event (and console.debug is
 // read-only), so a rejection counts as handled when someone hands the

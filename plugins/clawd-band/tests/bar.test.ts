@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { barLayout } from './bar'
+import { barLayout } from '../hooks/bar'
 
 test('the fill is the share used, as a fraction of the bar, never past the whole', () => {
   expect(barLayout(0, 1, 0).fill).toBe(0)

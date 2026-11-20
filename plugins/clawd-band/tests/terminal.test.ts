@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
-import { terminal } from './terminal'
-import type { TextFrame } from './sprite'
-import type { Screen } from './terminal'
+import { terminal } from '../hooks/terminal'
+import type { TextFrame } from '../hooks/sprite'
+import type { Screen } from '../hooks/terminal'
 
 const NO_PICTURES = { deny: 'the Image draws its alt here: no pictures in a test' }
 

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { CLAUDE_ORANGE } from './color'
-import { lengthOf, picturesIn, PIXEL_HEIGHT, PIXEL_WIDTH, POSES, SCENES, TEXT_COLUMNS, textIn } from './sprite'
+import { CLAUDE_ORANGE } from '../hooks/color'
+import { lengthOf, picturesIn, PIXEL_HEIGHT, PIXEL_WIDTH, POSES, SCENES, TEXT_COLUMNS, textIn } from '../hooks/sprite'
 import type { Pose } from '../types'
 import { BAND, core, type Drawn, narrow, nodes, NOW, words } from './band.fixtures'
 

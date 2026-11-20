@@ -1,11 +1,11 @@
 import type { On, SessionContextBreakdown } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { rowsOf } from './rows'
-import { pill } from './pill'
+import { rowsOf } from '../hooks/rows'
+import { pill } from '../hooks/pill'
 import { BAND as KIT_BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
 import type { Drawn } from './kit'
-import { settings } from './settings'
+import { settings } from '../hooks/settings'
 
 // The kit's band, two columns narrower: a row's label, two dots and figure take 2 + 2 + 3 cells,
 // not the 3 + 2 + 4 of a padded label beside blank cells, so its bars keep the width these tests count in.

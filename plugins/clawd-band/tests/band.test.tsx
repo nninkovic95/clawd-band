@@ -1,9 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { CLAUDE_ORANGE } from './color'
-import { cacheCountdown, countdown, windowLabel } from './format'
-import { shortModel, withoutEffort } from './register'
-import { settings } from './settings'
+import { CLAUDE_ORANGE } from '../hooks/color'
+import { cacheCountdown, countdown, windowLabel } from '../hooks/format'
+import { shortModel, withoutEffort } from '../hooks/register'
+import { settings } from '../hooks/settings'
 import { BAND, core, NOW, usageOf } from './band.fixtures'
 
 test('model names are shortened', async () => {

@@ -1,8 +1,8 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { shownPose } from './register'
-import { lengthOf, POSES, SCENES } from './sprite'
+import { shownPose } from '../hooks/register'
+import { lengthOf, POSES, SCENES } from '../hooks/sprite'
 import type { Pose } from '../types'
 import { BAND, core, NOW } from './band.fixtures'
 

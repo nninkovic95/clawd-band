@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { merging } from './merge'
+import { merging } from '../hooks/merge'
 
 type Counts = { a: number | null; b: number | null }
 

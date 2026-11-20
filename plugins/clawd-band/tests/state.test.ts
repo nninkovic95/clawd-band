@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { asStoredModel, asStoredUsage, field } from './state'
+import { asStoredModel, asStoredUsage, field } from '../hooks/state'
 
 test('a field is read from any object, and is nothing from anything else', () => {
   expect(field({ a: 1 }, 'a')).toBe(1)

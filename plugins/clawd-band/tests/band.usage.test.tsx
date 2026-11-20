@@ -1,8 +1,8 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { parseAccountUsage } from './usage/account'
-import { askKey, expiredKey, mergeUsage, resetExpired, sameUsage, toUsage } from './usage/model'
+import { parseAccountUsage } from '../hooks/usage/account'
+import { askKey, expiredKey, mergeUsage, resetExpired, sameUsage, toUsage } from '../hooks/usage/model'
 import { BAND, core, NOW, STILL_BARS, TEXT_BARS, usageOf } from './band.fixtures'
 
 test('usage windows come from the rate limits', async () => {

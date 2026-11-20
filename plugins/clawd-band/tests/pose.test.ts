@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Pose } from '../types'
-import { BETWEEN, glance, play, poseFor, poser, RULES, start, view, want } from './pose'
-import type { Flow } from './pose'
-import { lengthOf } from './sprite'
+import { BETWEEN, glance, play, poseFor, poser, RULES, start, view, want } from '../hooks/pose'
+import type { Flow } from '../hooks/pose'
+import { lengthOf } from '../hooks/sprite'
 
 // What is on screen: a pose, or the plain body between two.
 const nameOf = (flow: Flow): string => (view(flow) === BETWEEN ? 'between' : view(flow).pose)
