@@ -1,13 +1,9 @@
-import { atom, read, update } from 'claude-code'
 import type { EngineInterface, SessionRateLimit } from 'claude-code'
 
 import { merging } from '../merge'
 import type { Usage } from '../../types'
 import { askKey, mergeUsage, sameUsage, toUsage } from './model'
-import { asStoredUsage, field } from '../state'
-
-// Spelled in the module that updates it: the engine's scan reads no atom imported from another.
-const usageAtom = atom({ plugin: 'clawd-band', key: 'usage' } as const, null)
+import { asStoredUsage, field, readUsage, updateUsage } from '../state'
 
 const USAGE_WINDOWS = ['five_hour', 'seven_day']
 
@@ -105,7 +101,7 @@ export async function setUsage($: EngineInterface, limits: readonly SessionRateL
   if (limits.length === 0) return
   sync.readAt = now
   sync.isStale = false
-  const value = await update($, usageAtom, merging(current => mergeUsage(current, toUsage(limits)), sameUsage).step)
+  const value = await updateUsage($, merging(current => mergeUsage(current, toUsage(limits)), sameUsage).step)
   await keep($, value, now)
 }
 
@@ -114,23 +110,23 @@ export async function setUsage($: EngineInterface, limits: readonly SessionRateL
 async function adoptStored($: EngineInterface) {
   const stored = asStoredUsage(await $.store.get('usage'))
   if (!stored) return
-  const current = await read($, usageAtom)
+  const current = await readUsage($)
   if (current && stored.readAt <= sync.readAt) return
   sync.readAt = Math.max(sync.readAt, stored.readAt)
   sync.kept = stored.usage
-  await update($, usageAtom, merging(now => mergeUsage(now, stored.usage), sameUsage).step)
+  await updateUsage($, merging(now => mergeUsage(now, stored.usage), sameUsage).step)
 }
 
 // Once per session: what the session already knows fills the windows nothing
 // newer has filled, and a reading older than a few minutes is marked stale.
 async function loadSessionReading($: EngineInterface, now: number) {
   const session = toUsage((await $.session.usage()).rateLimits)
-  if (session) await update($, usageAtom, merging(current => mergeUsage(session, current ?? null), sameUsage).step)
+  if (session) await updateUsage($, merging(current => mergeUsage(session, current ?? null), sameUsage).step)
   sync.isStale = now - sync.readAt > STALE_MS
 }
 
 async function askAccount($: EngineInterface, now: number) {
-  const key = askKey(await read($, usageAtom), sync.isStale, now)
+  const key = askKey(await readUsage($), sync.isStale, now)
   if (key !== sync.key) {
     sync.key = key
     sync.tries = 0

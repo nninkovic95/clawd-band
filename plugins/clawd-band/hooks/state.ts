@@ -1,4 +1,43 @@
-import type { Usage, Window } from '../types'
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface } from 'claude-code'
+
+import type { Model, Pose, Usage, Window } from '../types'
+
+// The session's state, each atom defined here once. The engine's scan reads
+// only an atom spelled in the file that calls read or update on it, so every
+// such call is made here and the other modules go through these.
+const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
+const usageAtom = atom({ plugin: 'clawd-band', key: 'usage' } as const, null)
+const modelAtom = atom({ plugin: 'clawd-band', key: 'model' } as const, { name: null, effort: null })
+// When the main thread's last reply came back: the prompt cache's clock.
+const cacheAtom = atom({ plugin: 'clawd-band', key: 'cacheAt' } as const, null)
+
+type Change<T> = (value: T) => T
+
+export function readPose($: EngineInterface) {
+  return read($, poseAtom)
+}
+export function updatePose($: EngineInterface, change: Change<Pose>) {
+  return update($, poseAtom, change)
+}
+export function readUsage($: EngineInterface) {
+  return read($, usageAtom)
+}
+export function updateUsage($: EngineInterface, change: Change<Usage | null>) {
+  return update($, usageAtom, change)
+}
+export function readModel($: EngineInterface) {
+  return read($, modelAtom)
+}
+export function updateModel($: EngineInterface, change: Change<Model>) {
+  return update($, modelAtom, change)
+}
+export function readCacheAt($: EngineInterface) {
+  return read($, cacheAtom)
+}
+export function updateCacheAt($: EngineInterface, change: Change<number | null>) {
+  return update($, cacheAtom, change)
+}
 
 // What the stores hold: a reading and when it was taken. Every session of the
 // account shares the one store, so the newest reading reaches them all.

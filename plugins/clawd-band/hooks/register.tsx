@@ -1,4 +1,3 @@
-import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionContextUsage, SessionUsage, Timer, TurnCompleteReason } from 'claude-code'
 
 import type { Model, Pose, Usage } from '../types'
@@ -21,15 +20,8 @@ import type { Draw, Scene } from './sprite'
 import { merging } from './merge'
 import { setUsage, syncUsage } from './usage/account'
 import { resetExpired } from './usage/model'
-import { asStoredModel } from './state'
+import { asStoredModel, readCacheAt, readModel, readPose, readUsage, updateCacheAt, updateModel, updatePose } from './state'
 import { quietly } from './quiet'
-
-const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
-// Written by usage.ts; an atom is named in each file that reads it.
-const usageAtom = atom({ plugin: 'clawd-band', key: 'usage' } as const, null)
-const modelAtom = atom({ plugin: 'clawd-band', key: 'model' } as const, { name: null, effort: null })
-// When the main thread's last reply came back: the prompt cache's clock.
-const cacheAtom = atom({ plugin: 'clawd-band', key: 'cacheAt' } as const, null)
 
 const FRAME_MS = 400 // stop-motion: a few frames, each held
 const GLANCE_MS = 1_000 // how long a subagent's tool stays wanted as a glance
@@ -69,7 +61,7 @@ async function setModel($: EngineInterface, next: Partial<Model>) {
     },
     (a, b) => (a?.name ?? null) === (b?.name ?? null) && (a?.effort ?? null) === (b?.effort ?? null),
   )
-  const value = await update($, modelAtom, merge.step)
+  const value = await updateModel($, merge.step)
   if (merge.changed()) await $.store.set('model', value)
 }
 
@@ -144,7 +136,7 @@ const wantsPictures = (): boolean => config.sprite === 'picture' || config.barSt
 async function publish($: EngineInterface) {
   const { screen, wanted } = posing.takeChange()
   if (screen) $.ui.invalidate('ui.render')
-  if (wanted !== null) await update($, poseAtom, () => wanted)
+  if (wanted !== null) await updatePose($, () => wanted)
 }
 
 // A change to the poser, published at once: nothing runs between the two, so
@@ -205,7 +197,7 @@ const rowsKey = (usage: Usage | null, cacheAt: number | null, now: number): stri
 // with no word of it. A write of what the band read redraws it already, and
 // Clawd's frames have their own redraw. The rows built here are drawn.
 async function redrawRows($: EngineInterface, now: number, reading: Promise<SessionUsage>) {
-  const [usage, cacheAt, context] = await Promise.all([read($, usageAtom), read($, cacheAtom), contextOf(reading)])
+  const [usage, cacheAt, context] = await Promise.all([readUsage($), readCacheAt($), contextOf(reading)])
   const rows = rowsFrom(usage, cacheAt, context, now)
   if (JSON.stringify(rows) === live.rowsDrawn) return
   live.rowsBuilt = { key: rowsKey(usage, cacheAt, now), rows }
@@ -269,7 +261,7 @@ function ensureStarted($: EngineInterface) {
   if (live.timer && Date.now() - live.tickedAt < STALLED_MS) return
   if (!live.timer) {
     // A module loaded again mid-session takes up the pose the last one left.
-    void read($, poseAtom).then(seedPose, () => undefined)
+    void readPose($).then(seedPose, () => undefined)
     quietly(offerCommand($))
   }
   live.timer?.cancel()
@@ -325,7 +317,7 @@ export const register: Register = (on, options) => {
     // A reply that came back read or wrote the cache: its entry lives on from here.
     if (result.usage) {
       const now = await $.clock.now()
-      await update($, cacheAtom, () => now)
+      await updateCacheAt($, () => now)
     }
     return result
   })
@@ -398,7 +390,7 @@ export const register: Register = (on, options) => {
     live.bandId = e.requestId
     live.isWorking = e.props.isWorking
     // The state is read here, whatever the rows are built from: a write of it redraws the band.
-    const [now, model, usage, cacheAt] = await Promise.all([$.clock.now(), read($, modelAtom), read($, usageAtom), read($, cacheAtom)])
+    const [now, model, usage, cacheAt] = await Promise.all([$.clock.now(), readModel($), readUsage($), readCacheAt($)])
     const built = live.rowsBuilt
     live.rowsBuilt = null
     const rows =
