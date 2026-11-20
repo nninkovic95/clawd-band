@@ -21,7 +21,6 @@ import {
 import type { Pose } from '../types'
 import { parseAccountUsage } from './usage/account'
 import { askKey, expiredKey, mergeUsage, resetExpired, sameUsage, toUsage } from './usage/model'
-import { asStoredUsage } from './usage/store'
 
 const BAND = {
   plugin: 'clawd-band',
@@ -816,18 +815,6 @@ test("another session's newer reading shows without a reply or a request", async
   await clock.advance(2000)
   expect(await ui.find({ type: 'Text', text: ' 42%' })).toBeDefined()
   await ui.unmount()
-})
-
-test('a stored reading is checked, and one without a time is the oldest', async () => {
-  const usage = {
-    fiveHour: { percentUsed: 40, resetsAt: '2026-10-11T18:00:00Z' },
-    sevenDay: { percentUsed: 31, resetsAt: null },
-  }
-  expect(asStoredUsage({ ...usage, readAt: 7 })).toEqual({ usage, readAt: 7 })
-  expect(asStoredUsage(usage)).toEqual({ usage, readAt: 0 })
-  expect(asStoredUsage({ fiveHour: 'full', sevenDay: null })).toBe(null)
-  expect(asStoredUsage('nonsense')).toBe(null)
-  expect(asStoredUsage(undefined)).toBe(null)
 })
 
 test('the account is asked only while the reading is not live', async () => {

@@ -19,7 +19,7 @@ import type { Draw, Scene } from './sprite'
 import { merging } from './merge'
 import { setUsage, syncUsage } from './usage/account'
 import { resetExpired } from './usage/model'
-import { field } from './usage/store'
+import { asStoredModel } from './state'
 
 const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
 // Written by usage.ts; an atom is named in each file that reads it.
@@ -200,10 +200,7 @@ async function contextOf($: EngineInterface): Promise<SessionContextUsage | unde
 
 async function loadModel($: EngineInterface) {
   const name = await $.session.model()
-  const stored = await $.store.get('model')
-  // The stored effort belongs to the stored model; another model may differ.
-  const effort = field(stored, 'name') === name ? field(stored, 'effort') : undefined
-  await setModel($, { name, effort: typeof effort === 'string' ? effort : undefined })
+  await setModel($, asStoredModel(await $.store.get('model'), name))
 }
 
 // The rows as drawn at `now`, from what the session holds.

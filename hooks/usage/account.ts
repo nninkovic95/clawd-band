@@ -4,7 +4,7 @@ import type { EngineInterface, SessionRateLimit } from 'claude-code'
 import { merging } from '../merge'
 import type { Usage } from '../../types'
 import { askKey, mergeUsage, sameUsage, toUsage } from './model'
-import { asStoredUsage, field } from './store'
+import { asStoredUsage, field } from '../state'
 
 // Spelled in the module that updates it: the engine's scan reads no atom imported from another.
 const usageAtom = atom({ plugin: 'clawd-band', key: 'usage' } as const, null)

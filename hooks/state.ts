@@ -1,6 +1,6 @@
-import type { Usage, Window } from '../../types'
+import type { Usage, Window } from '../types'
 
-// What the store holds: a reading and when it was taken. Every session of the
+// What the stores hold: a reading and when it was taken. Every session of the
 // account shares the one store, so the newest reading reaches them all.
 export type StoredUsage = { usage: Usage; readAt: number }
 
@@ -21,4 +21,11 @@ export const asStoredUsage = (value: unknown): StoredUsage | null => {
   if (!usage.fiveHour && !usage.sevenDay) return null
   const readAt = field(value, 'readAt')
   return { usage, readAt: typeof readAt === 'number' ? readAt : 0 }
+}
+
+// The model kept in the store. Its effort belongs to the model it was stored
+// with; another model may differ, so then it is dropped.
+export const asStoredModel = (value: unknown, name: string | null): { name: string | null; effort: string | undefined } => {
+  const effort = field(value, 'effort')
+  return { name, effort: field(value, 'name') === name && typeof effort === 'string' ? effort : undefined }
 }
