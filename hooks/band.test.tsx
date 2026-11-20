@@ -222,14 +222,14 @@ test('a day mark is drawn in the colour of the part it sits in, and no bar is dr
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
   const bars = (await ui.find({ key: 'bars' })) as Drawn | undefined
-  // The weekly row's bar: its Texts between the label and the percentage.
+  // The weekly row's bar: its Texts between the dot after the label and the dot before the percentage.
   const row = bars ? nodes(nodes(bars)[0]!) : []
-  const cells = row.slice(1, row.findIndex(run => words(run).includes('%')))
+  const cells = row.slice(2, row.findIndex(run => words(run).includes('%')) - 1)
   const marks = (empty: boolean) =>
     cells
       .filter(run => (run.props.color === 'inactive') === empty)
       .reduce((n, run) => n + [...words(run)].filter(c => c === ' ').length, 0)
-  // 75 columns with the test's "200k " label: a 32-cell bar, 23 day
+  // 75 columns with the test's "200k" label and a dim dot either side: a 31-cell bar, 23 day
   // cells starting at 0, 3, 7, 10, 13, 16, 20. 40% is 9 cells: the fill runs past the marks
   // before cells 3 and 7.
   expect([marks(false), marks(true)]).toEqual([2, 4])
@@ -251,7 +251,7 @@ for (const [used, days, warned] of [
     on('ui.blit', () => ({ value: {} }))
     const ui = await $.ui.mount(BAND)
     await clock.advance(1)
-    // 75 columns with the "200k " label: a 36-cell bar, 27 day cells
+    // 75 columns with the "200k" label and a dim dot either side: a 35-cell bar, 27 day cells
     // and 6 marks, the last 3 days from day cell 15. 60% with 4 days to go leaves 2.8 days'
     // worth, ahead of time, but the week is not yet in its last 3 days: nothing warns. 30% is not
     // ahead. 85% with 2 days to go leaves 1.05: the fill ends at cell 23, and the 4 unused cells
@@ -359,7 +359,7 @@ test(
     await clock.advance(1)
     const source = (await wide.find({ key: 'clawd' }))?.props.source as { rgba: string; width: number } | undefined
     await wide.unmount()
-    const slim = await $.ui.mount(narrow(27))
+    const slim = await $.ui.mount(narrow(28))
     await clock.advance(1)
     const column = (await slim.find({ key: 'clawd-text' })) as Drawn | undefined
     await slim.unmount()
@@ -432,10 +432,10 @@ test('a window used up reads 99%, never 100%, and its bar is full', TEXT_BARS, a
   await clock.advance(1)
   expect(await ui.find({ type: 'Text', text: '99%' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /100%/ })).toBe(undefined)
-  // 75 columns: 1, 16 for Clawd, 1, "200k " 5 (the test's context window), the bar,
-  // "99%" 3, " 01h-00m-00s" 12, 1 at the edge: the bar is 34,
+  // 75 columns: 1, 16 for Clawd, 1, "200k" 4 (the test's context window), a dim dot either side of the bar 2,
+  // "99%" 3, " 01h-00m-00s" 12, 1 at the edge: the bar is 35,
   // its ends caps.
-  expect(await ui.find({ type: 'Text', text: /^█{34}$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^█{33}$/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -456,7 +456,7 @@ test("the fill's rounded end is drawn on the empty part's colour", TEXT_BARS, as
   await ui.unmount()
 })
 
-test('no cell lies between a label, its bar and its figure, and a blank row parts each two, under an empty row on top', TEXT_BARS, async ($, on) => {
+test('each bar has a dim dot either side, no blank cell parts a label, bar and figure, and a blank row parts each two, under an empty row on top', TEXT_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const resetsAt = new Date(NOW + 3_600_000).toISOString()
   on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 40, resetsAt }]))
@@ -466,15 +466,16 @@ test('no cell lies between a label, its bar and its figure, and a blank row part
   await clock.advance(1)
   const bars = (await ui.find({ key: 'bars' })) as Drawn | undefined
   const rows = (bars ? nodes(bars) : []).map(textOf)
-  // 75 columns: 1, 16 for Clawd, 1, "200k " 5, "99%" 3,
-  // " 00h-59m-59s" 12, 1 at the edge: the bar is 36.
+  // 75 columns: 1, 16 for Clawd, 1, "200k" 4, a dim dot either side of the bar 2, "99%" 3,
+  // " 00h-59m-59s" 12, 1 at the edge: the bar is 35.
   expect(rows.length).toBe(5)
   expect([rows[1], rows[3]].map(row => row?.trim())).toEqual(['', ''])
-  // The label, the bar from its first cap to its last, the percentage: no cell between them.
-  // The percentage is always two digits.
-  const framed = /^(7d {3}|5h {3}|200k ).{36} *(\d\d%|--|[-\\|/])/
+  // The label, a dot, the bar from its first cap to its last, a dot, the percentage: no blank
+  // cell between them. The dots are dim: they lead the eye from a label to its bar and on to its
+  // figure. The percentage is always two digits.
+  const framed = /^(7d {2}|5h {2}|200k)·(?:.{35}|[/ ]{35})· *(\d\d%|--|[-\\|/])/
   expect([rows[0], rows[2], rows[4]].map(row => framed.test(row ?? ''))).toEqual([true, true, true])
-  expect(await ui.find({ type: 'Text', text: /^·$/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: '·' }))?.props.dimColor).toBe(true)
   // The band's first row is empty to the eye, so it stands clear of the line above it: it holds
   // only the one-cell picture the terminal is asked through, whose alt is a space.
   const top = (await ui.find({ key: 'band' })) as Drawn | undefined
@@ -860,14 +861,14 @@ test('the bars take every cell left, with a one-cell gap either side of Clawd', 
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  // Fixed: Clawd's box 16, "5h " 3, "99%" 3,
+  // Fixed: Clawd's box 16, "5h" 2, a dim dot either side of the bars 2, "99%" 3,
   // " 04h-59m-59s" 12, one cell at the right edge, and the gaps before and after Clawd at 1
-  // each: 37. The bars take the rest.
+  // each: 38. The bars take the rest.
   for (const [columns, bar, before, after] of [
-    [75, 38, 1, 1],
-    [80, 43, 1, 1],
-    [100, 63, 1, 1],
-    [120, 83, 1, 1],
+    [75, 37, 1, 1],
+    [80, 42, 1, 1],
+    [100, 62, 1, 1],
+    [120, 82, 1, 1],
   ]) {
     const ui = await $.ui.mount(narrow(columns!))
     await clock.advance(1)
@@ -887,15 +888,15 @@ test('the bars leave Clawd 16 columns and a gap, in either form', TEXT_BARS, asy
   on('ui.blit', () => ({ value: refuse ? { deny: 'the Image draws its alt here: no pictures in a test' } : {} }))
   const ui = await $.ui.mount(BAND)
   await clock.advance(1)
-  // 75 columns: 1, 16 for Clawd, 1 gap, "5h ", "99%",
-  // " 04h-59m-59s", 1 at the edge leave 38, and the bar takes them all. The five-hour bar, empty: the weekly one has marks.
+  // 75 columns: 1, 16 for Clawd, 1 gap, "5h", a dim dot either side of the bar, "99%",
+  // " 04h-59m-59s", 1 at the edge leave 37, and the bar takes them all. The five-hour bar, empty: the weekly one has marks.
   const empty = () => emptyBar(ui)
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
-  expect(await empty()).toBe(38)
+  expect(await empty()).toBe(37)
   refuse = true
   await clock.advance(2000)
   expect(await ui.find({ key: 'clawd' })).toBe(undefined)
-  expect(await empty()).toBe(38)
+  expect(await empty()).toBe(37)
   await ui.unmount()
 })
 
@@ -927,9 +928,9 @@ test('a band too narrow for whole countdowns shows their two biggest units', TEX
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(narrow(38))
+  const ui = await $.ui.mount(narrow(39))
   await clock.advance(1)
-  // 38 cells: 1, 16 for Clawd, 1 gap, "5h ", 5 of bar, "99%", " --h---m", 1 at the edge.
+  // 39 cells: 1, 16 for Clawd, 1 gap, "5h", 5 of bar and a dim dot either side, "99%", " --h---m", 1 at the edge.
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /--h---m---s/ })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /--h---m$/ }))?.text).toBe('--h---m')
@@ -941,9 +942,9 @@ test('narrower still, the countdowns go and the bars keep the room', TEXT_BARS, 
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(narrow(31))
+  const ui = await $.ui.mount(narrow(32))
   await clock.advance(1)
-  // 31 cells: 1, 16 for Clawd, 1 gap, "5h ", 6 of bar, "99%", 1 at the edge.
+  // 32 cells: 1, 16 for Clawd, 1 gap, "5h", 6 of bar and a dim dot either side, "99%", 1 at the edge.
   expect(await ui.find({ key: 'clawd' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /--[hd]/ })).toBe(undefined)
   expect(await emptyBar(ui)).toBe(6)
@@ -954,9 +955,9 @@ test('narrower again, Clawd turns to the 14-cell text and the bars keep the room
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(narrow(28))
+  const ui = await $.ui.mount(narrow(29))
   await clock.advance(1)
-  // 28 cells: 1, 14 for Clawd in text, 1 gap, "5h ", 5 of bar, "99%", 1 at the edge.
+  // 29 cells: 1, 14 for Clawd in text, 1 gap, "5h", 5 of bar and a dim dot either side, "99%", 1 at the edge.
   // The 16-cell picture would leave the bar 3, under its least.
   expect(await ui.find({ key: 'clawd' })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: '▝▜█████▛▘' })).toBeDefined()
@@ -973,7 +974,7 @@ test('in a band too narrow for the picture, no picture is sent and the text Claw
     if (e.key === 'clawd') blits += 1
     return { value: {} }
   })
-  const ui = await $.ui.mount(narrow(27))
+  const ui = await $.ui.mount(narrow(28))
   await clock.advance(2000)
   // Two loops of the mug's four frames, wherever in the loop the first falls.
   const shut: boolean[] = []
@@ -1046,9 +1047,9 @@ test('narrowest, Clawd hides; the model line stays and the bars keep the room', 
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  const ui = await $.ui.mount(narrow(20))
+  const ui = await $.ui.mount(narrow(21))
   await clock.advance(1)
-  // 20 cells: 1, "--" for the model not yet known, 1 gap, "5h ", 9 of bar, "99%", 1 at the edge.
+  // 21 cells: 1, "--" for the model not yet known, 1 gap, "5h", 9 of bar and a dim dot either side, "99%", 1 at the edge.
   expect(await ui.find({ key: 'clawd' })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: '▝▜█████▛▘' })).toBe(undefined)
   expect(await ui.find({ key: 'model' })).toBeDefined()
@@ -1093,11 +1094,11 @@ test('narrower than its narrowest layout, the band draws nothing', async ($, on)
   const clock = mock.clock(on, { now: NOW })
   on('ui.render', core)
   on('ui.blit', () => ({ value: {} }))
-  // 15 cells: 1, "--", 1 gap, "5h ", 4 of bar, "99%", 1 at the edge. One
+  // 16 cells: 1, "--", 1 gap, "5h", 4 of bar and a dim dot either side, "99%", 1 at the edge. One
   // fewer and no row fits.
   for (const [columns, shows] of [
-    [15, true],
-    [14, false],
+    [16, true],
+    [15, false],
   ] as const) {
     const ui = await $.ui.mount(narrow(columns))
     await clock.advance(1)

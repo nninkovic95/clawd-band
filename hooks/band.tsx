@@ -14,6 +14,7 @@ const SHORT_RESET = 8 // " 06d-23h" or " 04h-59m": the two biggest units, where 
 const MIN_BAR = 4
 const MAX_BAR = 255 // the most cells an Image takes; the bars in text keep to it, so both forms end at one place
 const EDGE = 1 // the cell kept free at the band's right edge
+const FRAME = 2 // a dim dot either side of the bars
 const WEEK = 7 // days in the weekly bar
 
 // The weekly window as `06d-18h-44m`, the five-hour one as `03h-33m-24s`: the
@@ -276,7 +277,7 @@ const effortText = (effort: string | null): string => (effort ? ` · ${effort}` 
 // left, with one cell either side of Clawd.
 export const fit = (view: View): Fit | null => {
   const caption = view.model ? view.model.name + effortText(view.model.effort) : ''
-  const label = Math.max(0, ...view.rows.map(row => row.label.length)) + 1 // "7d " or "200k "
+  const label = Math.max(0, ...view.rows.map(row => row.label.length)) // "7d" or "200k"
   const forms: [Fit['form'], number][] = view.clawd
     ? [
         [view.clawd.picture ? 'picture' : 'text', BOX_COLUMNS],
@@ -287,7 +288,7 @@ export const fit = (view: View): Fit | null => {
   const laid = forms.map(([form, width]) => {
     const left = Math.max(width, caption.length)
     const side = left > 0 ? 1 : 0
-    const room = view.columns - side - left - side - label - PERCENT - EDGE
+    const room = view.columns - side - left - side - label - FRAME - PERCENT - EDGE
     const reset = [RESET, SHORT_RESET].find(reset => room - reset >= MIN_BAR) ?? 0
     const barWidth = Math.min(MAX_BAR, Math.max(MIN_BAR, room - reset))
     const at: Fit = { form, before: side, left, gap: side, label, reset, barWidth }
@@ -299,6 +300,7 @@ export const fit = (view: View): Fit | null => {
 
 // The hover groups: a row and its line of detail light together.
 const rowScope = (row: Row): string => `clawd-band-${row.label}`
+const DOT = '·'
 
 export function band(view: View, settings: Settings, { Box, Text, Image }: Elements['terminal']) {
   const fitted = fit(view)
@@ -326,6 +328,9 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
     return (
       <Box key={`row-${row.label}`} flexDirection="row" hover={{ scope: rowScope(row) }}>
         <Text dimColor>{row.label.padEnd(label)}</Text>
+        {/* A dim dot either side of the bar, in the cell that parts it from its label and
+            from its figure: they guide the eye along the row. */}
+        <Text dimColor>{DOT}</Text>
         {isPicture ? (
           <Image
             key={`bar-${row.label}`}
@@ -354,6 +359,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
             </Text>
           ))
         )}
+        <Text dimColor>{DOT}</Text>
         <Text dimColor={row.percent == null}>{percent.padStart(PERCENT)}</Text>
         {reset > 0 ? <Text> </Text> : null}
         {reset > 0 ? (

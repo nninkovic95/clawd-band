@@ -7,9 +7,9 @@ import { BAND as KIT_BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
 import type { Drawn } from './kit'
 import { settings } from './settings'
 
-// The kit's band, three columns narrower: a row's figure takes 3 cells, not 4 beside two dots,
-// so its bars keep the width these tests count in.
-const BAND = { ...KIT_BAND, props: { ...KIT_BAND.props, bodyColumns: KIT_BAND.props.bodyColumns - 3 } }
+// The kit's band, two columns narrower: a row's label, two dots and figure take 2 + 2 + 3 cells,
+// not the 3 + 2 + 4 of a padded label beside blank cells, so its bars keep the width these tests count in.
+const BAND = { ...KIT_BAND, props: { ...KIT_BAND.props, bodyColumns: KIT_BAND.props.bodyColumns - 2 } }
 
 // A session at 320k of a 1M window, as /context broke one down: 21100 loaded
 // before the conversation, compacting itself at 667k of a 700k compaction window.
@@ -119,7 +119,7 @@ test(
 
 // A band of 71 columns: beside Clawd's 16 its context bar is 31 cells. At a cell 2.34 times as
 // tall as wide that is a picture 371 pixels by 28, every line of it 2 thick.
-const PILLS = { ...BAND, props: { ...BAND.props, bodyColumns: 68 } }
+const PILLS = { ...BAND, props: { ...BAND.props, bodyColumns: 69 } }
 const TRACK = [153, 153, 153, 102]
 // The row's own colour, bar_color_context's default: Claude's orange.
 const ORANGE = [215, 119, 87, 255]
@@ -165,9 +165,9 @@ test(
     sessionOf(on)
     const ui = await $.ui.mount(PILLS)
     await clock.advance(1000)
-    // The bar is the row's children between its label and its figure.
+    // The bar is the row's children between the dot after its label and the dot before its figure.
     const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-    const cells = row.children.slice(1, row.children.findIndex((child, at) => at > 0 && /^ *(\d\d%|--|[-\\|/])$/.test(textIn(child))))
+    const cells = row.children.slice(2, row.children.map(textIn).indexOf('·', 2))
     expect([...new Set(cells.map(cell => cell.props.color))]).toEqual(['claude', 'inactive'])
     await ui.unmount()
   },
@@ -196,7 +196,7 @@ test('a bar in text is one fill from its start', { options: { bar_style: 'dots' 
   await clock.advance(1000)
   const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
   // 31 cells of three steps each: 32% of 93 steps is 29.76, rounded to 30, ten whole cells.
-  expect(row.children.slice(1, 3).map(cell => [textIn(cell), cell.props.color])).toEqual([
+  expect(row.children.slice(2, 4).map(cell => [textIn(cell), cell.props.color])).toEqual([
     ['⣿'.repeat(10), 'claude'],
     ['⣀'.repeat(21), 'inactive'],
   ])
@@ -269,7 +269,7 @@ test("a row's line of detail is drawn hidden over the top row, in one hover grou
   expect([line?.props.display, line?.props.position, line?.props.top, line?.props.left]).toEqual(['none', 'absolute', 0, 1])
   expect(await hoverAt(ui, 'detail-1m')).toEqual({ scope: 'clawd-band-1m', display: 'flex' })
   // As wide as the band's 71 columns leave, so that it covers what the top row holds.
-  expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(66))
+  expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(67))
   expect(await hoverAt(ui, 'row-1m')).toEqual({ scope: 'clawd-band-1m' })
   // The session of this test is told nothing of its usage: those rows have no line.
   expect(await ui.find({ key: 'detail-7d' })).toBe(undefined)
@@ -312,7 +312,7 @@ test(
     const ui = await $.ui.mount(PILLS)
     await clock.advance(2000)
     const line = (await ui.find({ key: 'detail-1m' })) as Tree | undefined
-    expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(66))
+    expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(67))
     await ui.unmount()
   },
 )
@@ -348,7 +348,7 @@ test(
     // At 247.5 of the 371 pixels, and at 242, the empty part too.
     expect([pixelOf(bar, 242, 14), pixelOf(bar, 247, 14)]).toEqual([TRACK, TRACK])
     const line = (await ui.find({ key: 'detail-1m' })) as Tree | undefined
-    expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(66))
+    expect(line && textIn(line)).toBe('320.8k of 1M'.padEnd(67))
     await ui.unmount()
   },
 )
@@ -364,7 +364,7 @@ test(
     await clock.advance(3000)
     const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
     // 32% of 31 cells is 10, one fill from the bar's start.
-    expect(row.children.slice(1, 3).map(cell => [textIn(cell), cell.props.color])).toEqual([
+    expect(row.children.slice(2, 4).map(cell => [textIn(cell), cell.props.color])).toEqual([
       ['⣿'.repeat(10), 'claude'],
       ['⣀'.repeat(21), 'inactive'],
     ])
@@ -414,11 +414,11 @@ const overhangs = (node: Laid | string, width: number): string[] => {
 }
 
 // The narrowest band that draws bars: Clawd hidden, his column the model's name, "Fable 5.2",
-// with a cell either side; "1m ", the bar's 4 cells, "45%" and the edge: 22.
-const NARROWEST = { ...BAND, props: { ...BAND.props, bodyColumns: 22 } }
+// with a cell either side; "1m", a dot, the bar's 4 cells, a dot, "45%" and the edge: 23.
+const NARROWEST = { ...BAND, props: { ...BAND.props, bodyColumns: 23 } }
 // The band whose bars first reach 255 cells, the most an Image takes: a cell, Clawd's 16 and a
-// cell, "1m ", 255 cells, "45%", " 06d-23h-59m" and the edge: 292.
-const WIDEST = { ...BAND, props: { ...BAND.props, bodyColumns: 292 } }
+// cell, "1m", a dot, 255 cells, a dot, "45%", " 06d-23h-59m" and the edge: 293.
+const WIDEST = { ...BAND, props: { ...BAND.props, bodyColumns: 293 } }
 
 // Every bar the band drew as a picture: its cells, its rows, its pixels across and down, and
 // whether its bytes are every pixel of that size whole, within the 2 MiB an Image takes.
@@ -471,11 +471,12 @@ test(
   },
 )
 
-// The cells of a bar drawn in text: its row's children between the label and the figure.
+// The cells of a bar drawn in text: its row's children between the dot after the label and the
+// dot before the figure.
 const textBarCells = (row: Tree): number => {
   const textOf = (node: Tree | string): string => (typeof node === 'string' ? node : (node.children ?? []).map(textOf).join(''))
   const texts = row.children.map(textOf)
-  return [...texts.slice(1, texts.findIndex((text, at) => at > 0 && /^ *(\d\d%|--|[-\\|/])$/.test(text))).join('')].length
+  return [...texts.slice(2, texts.indexOf('·', 2)).join('')].length
 }
 
 test(
@@ -485,8 +486,8 @@ test(
     const clock = mock.clock(on, { now: NOW })
     sessionOf(on, INSIDE)
     const widths: [number, number][] = [
-      [22, 4],
-      [292, 255],
+      [23, 4],
+      [293, 255],
       [400, 255],
     ]
     for (const [columns, cells] of widths) {
@@ -590,11 +591,11 @@ test(
     // 4 cells of three steps each: 32% of 12 steps is 3.84, rounded to 4, a whole cell and a
     // third of the next from the start; the other two empty.
     const row = (await ui.find({ key: 'row-1m' })) as unknown as { children: Tree[] }
-    expect(row.children.slice(1, 3).map(cell => [textIn(cell), cell.props.color])).toEqual([
+    expect(row.children.slice(2, 4).map(cell => [textIn(cell), cell.props.color])).toEqual([
       ['⣿⣤', 'claude'],
       ['⣀⣀', 'inactive'],
     ])
-    expect(textIn(row.children[3]!)).toBe('32%')
+    expect(textIn(row.children[4]!)).toBe('·')
     await ui.unmount()
   },
 )

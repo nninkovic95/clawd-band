@@ -101,7 +101,7 @@ test('with Clawd off the pill bars still ask the terminal, and follow its answer
 })
 
 // A band of 71 columns: beside Clawd's 16 its bars are 29 cells.
-const PILLS = { ...BAND, props: { ...BAND.props, bodyColumns: 68 } }
+const PILLS = { ...BAND, props: { ...BAND.props, bodyColumns: 69 } }
 
 // That band, its five-hour window used by `percent`.
 const withFiveHour = (on: On, percent: number) => {
