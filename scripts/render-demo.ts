@@ -16,9 +16,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { boxPixels } from '../hooks/picture.ts'
-import { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, POSES } from '../hooks/sprite.ts'
-import { CLAUDE_ORANGE } from '../hooks/color.ts'
+import './loader.ts'
+
+const { boxPixels } = await import('../plugins/clawd-band/hooks/picture.ts')
+const { BOX_COLUMNS, BOX_ROWS, picturesIn, PIXEL_HEIGHT, POSES } = await import('../plugins/clawd-band/hooks/sprite.ts')
+const { CLAUDE_ORANGE } = await import('../plugins/clawd-band/hooks/color.ts')
 
 type Pose = keyof typeof POSES
 

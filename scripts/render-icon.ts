@@ -1,4 +1,4 @@
-// Renders the plugin directory icon, .claude-plugin/icon.png (1024 x 1024):
+// Renders the plugin directory icon, plugins/clawd-band/.claude-plugin/icon.png (1024 x 1024):
 // the plain Clawd of hooks/sprite.ts, standing on a usage bar.
 //
 // Run from the repository root: node scripts/render-icon.ts
@@ -9,8 +9,10 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { PICTURE_HEIGHT, PICTURE_WIDTH, picturesIn, PIXEL_WIDTH, SCALE } from '../hooks/sprite.ts'
-import { CLAUDE_ORANGE } from '../hooks/color.ts'
+import './loader.ts'
+
+const { PICTURE_HEIGHT, PICTURE_WIDTH, picturesIn, PIXEL_WIDTH, SCALE } = await import('../plugins/clawd-band/hooks/sprite.ts')
+const { CLAUDE_ORANGE } = await import('../plugins/clawd-band/hooks/color.ts')
 
 const SIZE = 1024
 const UNIT = 44 // one art pixel
@@ -62,5 +64,5 @@ ${cells}
 const work = mkdtempSync(join(tmpdir(), 'clawd-band-icon-'))
 const svgPath = join(work, 'icon.svg')
 writeFileSync(svgPath, svg)
-execFileSync('rsvg-convert', ['-w', String(SIZE), '-h', String(SIZE), '-o', '.claude-plugin/icon.png', svgPath])
-console.log('wrote .claude-plugin/icon.png')
+execFileSync('rsvg-convert', ['-w', String(SIZE), '-h', String(SIZE), '-o', 'plugins/clawd-band/.claude-plugin/icon.png', svgPath])
+console.log('wrote plugins/clawd-band/.claude-plugin/icon.png')

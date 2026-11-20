@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "clawd-band",
-      "source": "./",
+      "source": "./plugins/clawd-band",
       "category": "productivity",
       "tags": ["usage", "rate-limits", "kitty", "mascot"]
     }

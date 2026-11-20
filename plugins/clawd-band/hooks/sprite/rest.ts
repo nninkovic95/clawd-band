@@ -1,5 +1,5 @@
 // Resting, waiting, thinking and questioning: the poses of a turn that is not yet working.
-import { type Loop, type Spots, type Body, type Place, type Art, stamp, tall, dots, marks, TOP, SIDE, body, scene, art, SMALL_Z, BIG_Z } from './core.ts'
+import { type Loop, type Spots, type Body, type Place, type Art, stamp, tall, dots, marks, TOP, SIDE, body, scene, art, SMALL_Z, BIG_Z } from './core'
 
 // Idle, on a break: a mug in the hand, steam curling off it, the eyes shut
 // over the warmth of it.

@@ -149,7 +149,7 @@ function main() {
   const manual = process.env.MODE === 'manual';
   if (inActions && !process.env.GH_TOKEN) throw new Error('the BWC_TOKEN secret is not set');
 
-  const plugin = JSON.parse(readFileSync('.claude-plugin/plugin.json', 'utf8'));
+  const plugin = JSON.parse(readFileSync('plugins/clawd-band/.claude-plugin/plugin.json', 'utf8'));
   if (plugin.name !== NAME) throw new Error(`plugin.json names "${plugin.name}", not "${NAME}"`);
   const to = {
     version: (dry && process.env.PRETEND_VERSION) || plugin.version,

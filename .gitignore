@@ -1,5 +1,5 @@
 # Written by Claude Code at each load (it also ignores itself with its own .gitignore)
-.claude-plugin/types/
+**/.claude-plugin/types/
 .mcpb-cache/
 node_modules/
 *.log

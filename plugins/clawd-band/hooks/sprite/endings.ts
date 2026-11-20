@@ -1,5 +1,5 @@
 // How a turn ends: finished, interrupted, refused, failed. Each is played once.
-import { type Loop, type Spots, type Body, type Place, type Layer, type Art, stamp, fill, tall, dots, marks, TOP, SIDE, body, scene, art, HOP, stand } from './core.ts'
+import { type Loop, type Spots, type Body, type Place, type Layer, type Art, stamp, fill, tall, dots, marks, TOP, SIDE, body, scene, art, HOP, stand } from './core'
 
 // Finished: a green tick drawn beside the head, stroke by stroke, and a nod to it.
 const TICK = ['      c', '     cc', 'c   cc ', 'cc cc  ', ' ccc   ', '  c    ']

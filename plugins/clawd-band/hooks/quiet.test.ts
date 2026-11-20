@@ -27,7 +27,9 @@ const watched = <T>(settle: (ok: (value: T) => void, fail: (reason: unknown) => 
   return { promise: new Watched(settle), seen }
 }
 
-const drain = (): Promise<void> => new Promise((done) => setTimeout(done, 20))
+// The runtime has timers; the types this module is checked against do not name them.
+const host = globalThis as unknown as { setTimeout(run: () => void, ms: number): unknown }
+const drain = (): Promise<void> => new Promise((done) => host.setTimeout(done, 20))
 
 test('quietly on a rejected promise does not throw and leaves no unhandled rejection', async () => {
   const { promise, seen } = watched<string>((_, fail) => fail(new Error('boom')))

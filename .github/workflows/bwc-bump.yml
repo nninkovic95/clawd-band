@@ -6,7 +6,7 @@ name: Build with Claude listing
 on:
   push:
     branches: [main]
-    paths: ['.claude-plugin/plugin.json']
+    paths: ['plugins/clawd-band/.claude-plugin/plugin.json']
   workflow_dispatch:
     inputs:
       dry_run:

@@ -1,5 +1,5 @@
 // Delegating to a subagent and compacting the conversation.
-import { type Grid, type Loop, type Arm, type Body, type Place, type Layer, type Art, blank, stamp, fill, tall, dots, marks, X, TOP, SIDE, body, scene, art, HOP, SMALL_Z, BIG_Z } from './core.ts'
+import { type Grid, type Loop, type Arm, type Body, type Place, type Layer, type Art, blank, stamp, fill, tall, dots, marks, X, TOP, SIDE, body, scene, art, HOP, SMALL_Z, BIG_Z } from './core'
 
 // Delegating: he stands aside for a small Clawd, half his size, who takes the
 // work. `BOSS` is where he stands to leave it room.

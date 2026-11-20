@@ -7,27 +7,15 @@
 // Run from the repository root: node scripts/render-transitions.ts
 // Needs node 23.6+ (type stripping).
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { registerHooks } from 'node:module'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// The hooks import each other without an extension, as the mod's loader
-// resolves them; node wants one.
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    try {
-      return nextResolve(specifier, context)
-    } catch (error) {
-      if (!specifier.startsWith('.')) throw error
-      return nextResolve(`${specifier}.ts`, context)
-    }
-  },
-})
+import './loader.ts'
 
 const { PICTURE_HEIGHT, PICTURE_WIDTH, PIXEL_WIDTH, POSES, SCALE, SCENES, lengthOf, picturesIn, textIn } =
-  await import('../hooks/sprite.ts')
-const { CLAUDE_ORANGE, toHex } = await import('../hooks/color.ts')
-const { BETWEEN, RULES, glance, play, start, view, want } = await import('../hooks/pose.ts')
+  await import('../plugins/clawd-band/hooks/sprite.ts')
+const { CLAUDE_ORANGE, toHex } = await import('../plugins/clawd-band/hooks/color.ts')
+const { BETWEEN, RULES, glance, play, start, view, want } = await import('../plugins/clawd-band/hooks/pose.ts')
 
 type Pose = keyof typeof POSES
 type Scene = keyof typeof SCENES

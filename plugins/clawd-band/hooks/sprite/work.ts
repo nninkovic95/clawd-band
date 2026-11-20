@@ -1,5 +1,5 @@
 // Working, reading and writing: the poses of a hand at a task.
-import { type Loop, type Spots, type Body, type Layer, type Art, stamp, fill, tall, dots, marks, TOP, SIDE, scene, art } from './core.ts'
+import { type Loop, type Spots, type Body, type Layer, type Art, stamp, fill, tall, dots, marks, TOP, SIDE, scene, art } from './core'
 
 // Working: a hammer brought down on hot iron on an anvil, sparks at each blow.
 const ANVIL = ['ggggggg', ' mmmmm ', '  mmm  ', ' mmmmm ']

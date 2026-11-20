@@ -1,5 +1,5 @@
 // Written with its extension: the render scripts run this file in node as it stands.
-import { CLAUDE_ORANGE } from '../color.ts'
+import { CLAUDE_ORANGE } from '../color'
 // Types alone from another file: node resolves no import written without its extension.
 import type { Rgb } from '../picture'
 

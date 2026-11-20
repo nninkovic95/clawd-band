@@ -1,6 +1,6 @@
 import type { Pose } from '../types'
 // Written with their extension: the render scripts run this file in node as it stands.
-import { toHex } from './color.ts'
+import { toHex } from './color'
 import {
   type Art,
   type Grid,
@@ -18,12 +18,12 @@ import {
   TOP,
   X,
   stand,
-} from './sprite/core.ts'
-import { delegating, spawning, supervising, pressing, archiving } from './sprite/delegate.ts'
-import { ticking, flagging, pausing, unplugged, barring, deflecting, warning, bugged } from './sprite/endings.ts'
-import { mug, dozing, waiting, pondering, idea, turning, questioning, eitherOr } from './sprite/rest.ts'
-import { running, playing, prompting, searching, browsing, fetchingWeb } from './sprite/tools.ts'
-import { hammering, laptop, cooking, poring, reading, scrolling, writing, checking } from './sprite/work.ts'
+} from './sprite/core'
+import { delegating, spawning, supervising, pressing, archiving } from './sprite/delegate'
+import { ticking, flagging, pausing, unplugged, barring, deflecting, warning, bugged } from './sprite/endings'
+import { mug, dozing, waiting, pondering, idea, turning, questioning, eitherOr } from './sprite/rest'
+import { running, playing, prompting, searching, browsing, fetchingWeb } from './sprite/tools'
+import { hammering, laptop, cooking, poring, reading, scrolling, writing, checking } from './sprite/work'
 // Types alone from another file: the render scripts run this one in node as
 // it stands, which resolves no import written without its extension.
 import type { Picture } from './picture'
@@ -45,7 +45,7 @@ export {
   SCALE,
   TEXT_COLUMNS,
   TEXT_ROWS,
-} from './sprite/core.ts'
+} from './sprite/core'
 
 type PoseArt = {
   // What a screen reader hears, and what a terminal that cannot draw says.

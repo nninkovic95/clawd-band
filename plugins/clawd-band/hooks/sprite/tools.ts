@@ -1,5 +1,5 @@
 // Running a command and searching the web.
-import { type Loop, type Spots, type Body, type Art, stamp, fill, tall, dots, marks, TOP, SIDE, scene, art, HOP } from './core.ts'
+import { type Loop, type Spots, type Body, type Art, stamp, fill, tall, dots, marks, TOP, SIDE, scene, art, HOP } from './core'
 
 // Running: he runs, a stride then a bound, speed lines and dust behind him.
 const stride = (pose: Body): Art => art(dots(scene({ ...pose, legs: 'stride' }, [['ww'], 1, 6], [['ww'], 1, 10]), [[3, 13], [1, 12]], 'm'))

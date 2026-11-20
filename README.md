@@ -209,7 +209,7 @@ Once a second the band asks the terminal whether it draws pictures, by swapping 
 
 ### About the demo
 
-kitty's graphics protocol draws Clawd and the bars as images on their own layer, and terminal recorders such as asciinema record only the text stream, so a recording would show the labels and countdowns alone. The GIF at the top is therefore rendered by [`scripts/render-demo.ts`](scripts/render-demo.ts) from the mod's own frame data (`hooks/sprite.ts`). The script follows the band's layout in `hooks/band.tsx` and uses Claude Code's dark-theme colours. It shows each of the fifteen poses in turn and ends on a cold cache. To re-render it:
+kitty's graphics protocol draws Clawd and the bars as images on their own layer, and terminal recorders such as asciinema record only the text stream, so a recording would show the labels and countdowns alone. The GIF at the top is therefore rendered by [`scripts/render-demo.ts`](scripts/render-demo.ts) from the mod's own frame data (`plugins/clawd-band/hooks/sprite.ts`). The script follows the band's layout in `plugins/clawd-band/hooks/band.tsx` and uses Claude Code's dark-theme colours. It shows each of the fifteen poses in turn and ends on a cold cache. To re-render it:
 
 ```sh
 node scripts/render-demo.ts   # needs node 23.6+, rsvg-convert and ImageMagick
@@ -237,7 +237,7 @@ The mod contacts one host with one request. Everything else it does goes through
 | --- | --- | --- | --- |
 | `GET https://api.anthropic.com/api/oauth/usage` | Only while the band has no live usage reading (way 4 above), and never when both usage bars are off | Your own claude.ai sign-in, attached by Claude Code (the mod never sees the token), and the header `anthropic-beta: oauth-2025-04-20`. No body. | Your five-hour and weekly usage percentages and reset times: what `/usage` shows |
 
-The request is made in `hooks/usage/account.ts` (`fetchAccountUsage`). [Privacy](#privacy) has the rest: the retries, what ends them, and what is kept.
+The request is made in `plugins/clawd-band/hooks/usage/account.ts` (`fetchAccountUsage`). [Privacy](#privacy) has the rest: the retries, what ends them, and what is kept.
 
 ## Privacy
 
@@ -272,7 +272,7 @@ No telemetry, no analytics, no third parties, no other network calls, and no fil
 
 ## Hooks
 
-Everything the mod registers with Claude Code. The hooks are in `hooks/register.tsx` and, for the settings panel, `hooks/panel.tsx`. Claude Code hands a hook the whole event; the "reads" column is all the mod looks at.
+Everything the mod registers with Claude Code. The hooks are in `plugins/clawd-band/hooks/register.tsx` and, for the settings panel, `plugins/clawd-band/hooks/panel.tsx`. Claude Code hands a hook the whole event; the "reads" column is all the mod looks at.
 
 | Event | Why | Reads | Changes anything? |
 | --- | --- | --- | --- |
@@ -306,16 +306,16 @@ Calls it makes on Claude Code:
 
 It runs no commands, reads no files and reads no environment variables.
 
-Where the code lives: the band's drawing in `hooks/band.tsx`, the pill bars in `hooks/pill.ts`, the layout both bars share in `hooks/bar.ts`, the checked options in `hooks/settings.ts`, the usage readings in `hooks/usage/` (`model.ts` the reading, `store.ts` what the store holds, `account.ts` the request and its retries) and the merge step they share in `hooks/merge.ts`, the context estimate in `hooks/context.ts`, the settings panel in `hooks/panel.tsx`, the sprites in `hooks/sprite.ts` and the rules for which pose shows when in `hooks/pose.ts`.
+Where the code lives: the band's drawing in `plugins/clawd-band/hooks/band.tsx`, the pill bars in `plugins/clawd-band/hooks/pill.ts`, the layout both bars share in `plugins/clawd-band/hooks/bar.ts`, the checked options in `plugins/clawd-band/hooks/settings.ts`, the usage readings in `plugins/clawd-band/hooks/usage/` (`model.ts` the reading, `store.ts` what the store holds, `account.ts` the request and its retries) and the merge step they share in `plugins/clawd-band/hooks/merge.ts`, the context estimate in `plugins/clawd-band/hooks/context.ts`, the settings panel in `plugins/clawd-band/hooks/panel.tsx`, the sprites in `plugins/clawd-band/hooks/sprite.ts` and the rules for which pose shows when in `plugins/clawd-band/hooks/pose.ts`.
 
 ## Development
 
 ```sh
-claude plugin validate .
-claude plugin test .
+claude plugin validate plugins/clawd-band
+claude plugin test plugins/clawd-band
 ```
 
-`claude plugin test` runs ten test files in `hooks/`:
+`claude plugin test` runs the test files in `plugins/clawd-band/hooks/`. The band's tests are split by concern into `band.test.tsx`, `band.bars.test.tsx`, `band.usage.test.tsx`, `band.poses.test.tsx`, `band.sprite.test.tsx` and `band.loading.test.tsx`, which share `band.fixtures.tsx`. The first one's row below describes them all:
 
 | File | What it covers |
 | --- | --- |
@@ -331,11 +331,11 @@ claude plugin test .
 
 Saving a file while the mod is loaded through `--plugin-dir` hot-reloads it.
 
-`scripts/` holds four developer tools that the plugin never runs. `render-demo.ts` writes the demo GIF, `docs/demo/tour.gif`; `render-icon.ts` writes `.claude-plugin/icon.png`; `render-preview.ts` writes `docs/preview/poses.html`, a page that plays every pose as the picture and as the text Clawd side by side; `render-transitions.ts` writes `docs/preview/transitions.html`, a page that plays written-down turns through the pose rules beside the same turns cut from pose to pose. All are run by hand with node and only write their one file.
+`scripts/` holds four developer tools that the plugin never runs. `render-demo.ts` writes the demo GIF, `docs/demo/tour.gif`; `render-icon.ts` writes `plugins/clawd-band/.claude-plugin/icon.png`; `render-preview.ts` writes `docs/preview/poses.html`, a page that plays every pose as the picture and as the text Clawd side by side; `render-transitions.ts` writes `docs/preview/transitions.html`, a page that plays written-down turns through the pose rules beside the same turns cut from pose to pose. All are run by hand with node and only write their one file.
 
 ## Credits
 
-The sprites are original to this project. They are drawn in code (`hooks/sprite.ts`) on a 28 × 16 grid, and Clawd's body is Claude Code's own startup logo (`▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝`) traced pixel for pixel. Every prop, from the mug and the hourglass to the padlock and the small Clawd, is drawn here.
+The sprites are original to this project. They are drawn in code (`plugins/clawd-band/hooks/sprite.ts`) on a 28 × 16 grid, and Clawd's body is Claude Code's own startup logo (`▐▛███▜▌ / ▝▜█████▛▘ / ▘▘ ▝▝`) traced pixel for pixel. Every prop, from the mug and the hourglass to the padlock and the small Clawd, is drawn here.
 
 Clawd is the Claude Code mascot. This is an unofficial community project, not affiliated with or endorsed by Anthropic.
 
