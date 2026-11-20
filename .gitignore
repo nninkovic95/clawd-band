@@ -7,3 +7,6 @@ node_modules/
 Thumbs.db
 .claude/settings.local.json
 scripts/deploy-gate.sh
+
+# Project agents, tuned for this repo: local only
+.claude/agents/
