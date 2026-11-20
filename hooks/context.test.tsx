@@ -763,7 +763,7 @@ test('a session whose figure the engine gives is asked for no breakdown in a min
   await ui.unmount()
 })
 
-test('a session with no figure of its own is asked for its estimate once, and not again as the minutes pass', async ($, on) => {
+test('a session with no figure of its own is asked for its estimate once, and not again as the minutes pass', { options: { animate: false } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const session = heldSessionOf(on, clock, [])
   session.context = NO_FIGURE

@@ -65,7 +65,7 @@ const looks = (pose: Parameters<typeof draw>[0], roll: number): string[] =>
 
 test('how many animations each pose has', () => {
   const counts = Object.fromEntries(Object.entries(POSES).map(([pose, { variants }]) => [pose, variants.length]))
-  expect(counts).toMatchObject({ writing: 2, reading: 3, running: 3, failed: 2, refused: 2, interrupted: 3 })
+  expect(counts).toMatchObject({ writing: 2, reading: 3, running: 3, failed: 2, refused: 2, interrupted: 2, finished: 2 })
 })
 
 test('every animation moves, and no two animations of a pose are alike', () => {
@@ -111,4 +111,14 @@ test('the signal of a fetch reaches out arc by arc, and the answer comes back in
   expect(back).toBeGreaterThan(3)
   expect(white.slice(back).filter(count => count > 0).length).toBeGreaterThan(2)
   expect(frames.length).toBeGreaterThan(6)
+})
+
+const GREEN = [120, 210, 140]
+
+test('a finished turn draws its tick stroke by stroke, and it is green', () => {
+  const frames = looks('finished', 0)
+  const green = frames.map(frame => pixelsOf(frame, GREEN))
+  expect(green[0] ?? 0).toBeGreaterThan(0)
+  expect(green[0] ?? 0).toBeLessThan(green[1] ?? 0)
+  expect(green[2] ?? 0).toBeGreaterThan(0)
 })

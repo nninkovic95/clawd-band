@@ -15,7 +15,12 @@ export type Pill = {
   fill: Rgba
   track: Rgba
   warn: Rgba
+  // While the bar has no reading: the frame of its silver slashes, which move a step
+  // a frame and come round in four. The fill, the seams and the warning are not drawn.
+  loading?: number
 }
+
+export const SILVER: Rgba = [190, 195, 205, 255]
 
 const ROW = 28 // the pixels a row of cells is drawn at
 const WIDEST = 2048 // the most pixels across an Image takes
@@ -48,6 +53,17 @@ const inPill = (x: number, y: number, from: number, to: number, height: number, 
 const painter = (spec: Pill, { width, height }: Size) => {
   const line = lineOf(height)
   const air = line
+  if (spec.loading !== undefined) {
+    // Slashes: lines of constant x + y, each as wide as the bar's own line is thick, a
+    // step further along each frame, and so a whole period after four.
+    const step = Math.max(2, Math.round(height / 6))
+    const period = 4 * step
+    return (x: number, y: number): Rgba | null => {
+      if (!inPill(x, y, 0, width, height, air)) return null
+      const along = (((Math.floor(x + y) - spec.loading! * step) % period) + period) % period
+      return along < period / 2 ? SILVER : spec.track
+    }
+  }
   const layout = barLayout(spec.percent, spec.segments, spec.warned)
   const seams = layout.seams.map(seam => seam * width)
   const warnFrom = layout.warnFrom * width

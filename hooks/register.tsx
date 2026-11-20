@@ -125,6 +125,8 @@ const live: {
   second: number
   // The rows of the last draw, as text: a second that leaves them so draws nothing.
   rowsDrawn: string | null
+  // Whether the last draw had a row spinning: it is redrawn each frame.
+  isSpinning: boolean
 } = {
   isCompacting: false,
   isWorking: false,
@@ -135,6 +137,7 @@ const live: {
   tickedAt: 0,
   second: 0,
   rowsDrawn: null,
+  isSpinning: false,
 }
 
 // What the band draws: the pose or the plain body between two, in its variant and its frame.
@@ -260,6 +263,8 @@ async function tick($: EngineInterface) {
   }
   await probe($, isNewSecond)
   await showFrame($)
+  // A spinning row has a frame of its own each period.
+  if (live.isSpinning) $.ui.invalidate('ui.render')
 }
 
 const STALLED_MS = 2_000
@@ -405,6 +410,7 @@ export const register: Register = (on, options) => {
     const model = await read($, modelAtom)
     const rows = await rowsAt($, now)
     live.rowsDrawn = JSON.stringify(rows)
+    live.isSpinning = config.animate && rows.some(row => row.isLoading)
 
     const pictures = wantsPictures() ? screen.draws : null
     const text = drawn(drawText)
@@ -420,6 +426,7 @@ export const register: Register = (on, options) => {
       clawd,
       model: config.showModel ? { name, effort: model.effort } : null,
       rows,
+      phase: config.animate ? Math.floor(now / FRAME_MS) : 0,
     }
     const form = fit(view)?.form ?? null
     screen.drew(form, text)

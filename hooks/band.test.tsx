@@ -1,7 +1,7 @@
 import type { Hook, On, SessionContextUsage, SessionRateLimit } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { barRuns, cacheCountdown, countdown, windowLabel } from './band'
+import { barRuns, cacheCountdown, countdown, loadingRuns, windowLabel } from './band'
 import { poseFor, shortModel, shownPose, withoutEffort } from './register'
 import { BAR_STYLES, settings } from './settings'
 import {
@@ -40,6 +40,8 @@ const BAND = {
 
 // The bars as text, whatever the terminal draws: the tests of their cells.
 const TEXT_BARS = { options: { bar_style: 'blocks' } } as const
+// Still bars: a row with no reading holds one frame, so a long wait costs no redraw each frame.
+const STILL_BARS = { options: { bar_style: 'blocks', animate: false } } as const
 
 // The moment every test's clock starts at.
 const NOW = Date.parse('2026-10-11T15:00:00Z')
@@ -483,7 +485,7 @@ test('each bar has a dim dot either side and a blank row parts each two, under a
   expect([rows[1], rows[3]].map(row => row?.trim())).toEqual(['', ''])
   // The label, a dot, the bar from its first cap to its last, a dot, the percentage. The
   // dots are dim: they lead the eye from a label to its bar and on to its figure.
-  const framed = /^(7d {3}|5h {3}|200k )·.{31}· +(\d+%|--)/
+  const framed = /^(7d {3}|5h {3}|200k )·(?:.{31}|[/ ]{33})· +(\d+%|--|[-\\|/])/
   expect([rows[0], rows[2], rows[4]].map(row => framed.test(row ?? ''))).toEqual([true, true, true])
   expect((await ui.find({ type: 'Text', text: '·' }))?.props.dimColor).toBe(true)
   // The band's first row is empty to the eye, so it stands clear of the line above it: it holds
@@ -713,7 +715,7 @@ test('an answer with no open window is not asked for again', TEXT_BARS, async ($
   await ui.unmount()
 })
 
-test('a request that fails is tried again, five times at most', TEXT_BARS, async ($, on) => {
+test('a request that fails is tried again, five times at most', STILL_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   const count = account(on, () => ({ status: 500, text: '' }))
@@ -738,7 +740,7 @@ test('a first request that fails and then works fills the bars without a reply',
   await ui.unmount()
 })
 
-test('a 429 ends the tries', TEXT_BARS, async ($, on) => {
+test('a 429 ends the tries', STILL_BARS, async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on)
   const count = account(on, () => ({ status: 429, text: '' }))
@@ -1472,5 +1474,73 @@ test('a compaction shows after the hold, and waiting follows its end', async ($,
   await after.unmount()
   // The pose lingers while waiting is new, then gives way to it.
   expect(await posesOver(ui, clock, 6)).toEqual(['compacting', 'compacting', 'compacting', 'compacting', 'plain', 'waiting'])
+  await ui.unmount()
+})
+
+test('the bar of a row still loading is slashes with a gap in each four, moving a cell a frame to the right', () => {
+  const at = (phase: number) => loadingRuns(12, phase).map(run => run.text).join('')
+  expect(at(0)).toBe('/// /// /// ')
+  expect(at(1)).toBe(' /// /// ///')
+  expect(at(2)).toBe('/ /// /// //')
+  expect(at(4)).toBe(at(0))
+  expect(loadingRuns(12, 3).every(run => run.part === 'loading')).toBe(true)
+  expect(loadingRuns(5, 7).map(run => run.text).join('').length).toBe(5)
+})
+
+// The row as drawn, in one string.
+const wordsOf = (node: unknown): string =>
+  typeof node === 'string' ? node : ((node as { children?: unknown[] } | undefined)?.children ?? []).map(wordsOf).join('')
+
+const SPIN = ['-', '\\', '|', '/']
+
+test('a usage row with no reading spins its dashes, - \\ | /, and its bar is slashes', TEXT_BARS, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  on('session.usage', () => usageOf())
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  const ui = await $.ui.mount(BAND)
+  const glyphs: string[] = []
+  for (let frame = 0; frame < 9; frame++) {
+    await clock.advance(400)
+    const row = wordsOf(await ui.find({ key: 'row-5h' }))
+    // The percentage and the countdown spin together: every dash is the frame's glyph.
+    const [, glyph] = /(.)\s+\1\1h\1\1\1m\1\1\1s$/.exec(row) ?? []
+    expect(glyph).toBeDefined()
+    glyphs.push(glyph ?? '')
+    expect(row.includes('/')).toBe(true)
+  }
+  // One step of - \ | / a frame, round and round.
+  const start = SPIN.indexOf(glyphs[0] ?? '')
+  expect(start).toBeGreaterThanOrEqual(0)
+  expect(glyphs).toEqual(glyphs.map((_, frame) => SPIN[(start + frame) % 4]))
+  await ui.unmount()
+})
+
+test('a usage row with a reading does not spin', TEXT_BARS, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const resetsAt = new Date(NOW + 3_600_000).toISOString()
+  on('session.usage', () => usageOf([{ kind: 'five_hour', percentUsed: 40, resetsAt }, { kind: 'seven_day', percentUsed: 31, resetsAt }]))
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  const ui = await $.ui.mount(BAND)
+  for (let frame = 0; frame < 4; frame++) {
+    await clock.advance(400)
+    expect(wordsOf(await ui.find({ key: 'row-5h' }))).toMatch(/40%/)
+    expect(wordsOf(await ui.find({ key: 'row-5h' })).includes('/')).toBe(false)
+  }
+  await ui.unmount()
+})
+
+test('with animate off a row with no reading holds its first frame', STILL_BARS, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  on('session.usage', () => usageOf())
+  on('ui.render', core)
+  on('ui.blit', () => ({ value: {} }))
+  const ui = await $.ui.mount(BAND)
+  await clock.advance(400)
+  const first = wordsOf(await ui.find({ key: 'row-5h' }))
+  await clock.advance(1600)
+  expect(wordsOf(await ui.find({ key: 'row-5h' }))).toBe(first)
+  expect(first.includes('/')).toBe(true)
   await ui.unmount()
 })

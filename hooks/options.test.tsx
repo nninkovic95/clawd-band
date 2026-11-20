@@ -116,7 +116,7 @@ test('a window whose time is up reads 0% and "reset", not a row of dashes', asyn
   expect(weekly?.timer).toBe('02d-09h-00m')
   // A window nothing is known of keeps its dashes.
   const [, unknown] = rowsOf({ ...READING, usage: { fiveHour: null, sevenDay: null } }, settings({}))
-  expect([unknown?.percent, unknown?.timer]).toEqual([undefined, '--h---m---s'])
+  expect([unknown?.percent, unknown?.timer, unknown?.isLoading]).toEqual([undefined, '--h---m---s', true])
 })
 
 test('before its first reply a session shows the context the engine estimates', async ($, on) => {

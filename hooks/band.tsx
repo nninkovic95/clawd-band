@@ -55,7 +55,7 @@ export const tokensText = (tokens: number): string => {
 // A stretch of a bar in one look; `warn` marks the weekly bar's last days when
 // the week is being used up ahead of time.
 // `behind` marks the fill's rounded end: what lies under the rest of its cell.
-export type Run = { text: string; part: 'filled' | 'empty'; warn?: true; behind?: 'empty' | 'warn' }
+export type Run = { text: string; part: 'filled' | 'empty' | 'loading'; warn?: true; behind?: 'empty' | 'warn' }
 
 // The cell between two days of the weekly bar: left blank, a clean gap in the
 // solid bar. Claude Code draws `dimColor` in the theme's grey, so days cannot be
@@ -119,6 +119,19 @@ export const barRuns = (width: number, percent: number, style: BarStyle, segment
   return runs
 }
 
+// The bar of a row with no reading yet: slashes with a gap in each four, a cell
+// further to the right each frame.
+export const loadingRuns = (width: number, phase: number): Run[] => [
+  {
+    text: Array.from({ length: width }, (_, cell) => (((cell - phase) % 4) + 4) % 4 === 3 ? ' ' : '/').join(''),
+    part: 'loading',
+  },
+]
+
+// What a row with no reading spins through, a frame at a time.
+const SPIN = ['-', '\\', '|', '/']
+const SILVER_TEXT = '#bec3cd'
+
 // One row of the band: a label, a bar, its percentage and a countdown.
 export type Row = {
   label: string
@@ -126,6 +139,8 @@ export type Row = {
   timer: string
   // A countdown that is running reads bold; one with nothing to count, dim.
   isLive: boolean
+  // No reading yet: the bar is slashes and the dashes spin.
+  isLoading?: true
   // The fill's own colour, at any level.
   own: Paint
   // Paints the fill and the countdown in place of `own` (a cold cache).
@@ -189,6 +204,7 @@ export const rowsOf = ({ usage, context, cacheAt, now }: Reading, settings: Sett
     // next request opens it. Dashes are for a window nothing is known of.
     timer: window?.percentUsed === 0 && !window.resetsAt ? 'reset' : countdown(window?.resetsAt, now, withDays),
     isLive: !!window?.resetsAt,
+    ...(window?.percentUsed == null ? { isLoading: true as const } : {}),
     // The weekly bar is cut into its seven days.
     segments: withDays ? WEEK : 1,
     ...(withDays && isAhead(window, now) ? { warned: WARNED_DAYS } : {}),
@@ -234,6 +250,8 @@ export type View = {
   // Null where the person turned the model line off.
   model: { name: string; effort: string | null } | null
   rows: readonly Row[]
+  // The frame the spinning rows are at.
+  phase?: number
 }
 
 // How the band lays itself out at its width: which form of Clawd, how wide
@@ -296,14 +314,17 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
 
   // Every bar shows its whole fill, one plain fill from the bar's start.
   const shownOf = (row: Row): number => row.percent ?? 0
+  const phase = view.phase ?? 0
+  const spin = SPIN[phase % 4] ?? '-'
   const runsOf = (row: Row): Run[] =>
-    isPicture ? [] : barRuns(barWidth, shownOf(row), settings.barStyle, row.segments, row.warned)
+    isPicture ? [] : row.isLoading ? loadingRuns(barWidth, phase) : barRuns(barWidth, shownOf(row), settings.barStyle, row.segments, row.warned)
 
   const bar = (row: Row) => {
     const fill = row.percent ?? 0
     const shown = shownOf(row)
     const paint = row.color ?? row.own
-    const percent = row.percent == null ? '--' : `${Math.min(99, Math.round(fill))}%`
+    const percent = row.percent == null ? (row.isLoading ? spin : '--') : `${Math.min(99, Math.round(fill))}%`
+    const timer = row.isLoading ? row.timer.replaceAll('-', spin) : row.timer
     return (
       <Box key={`row-${row.label}`} flexDirection="row" hover={{ scope: rowScope(row) }}>
         <Text dimColor>{row.label.padEnd(label)}</Text>
@@ -322,6 +343,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
               fill: paint.rgba,
               track: settings.empty.rgba,
               warn: settings.warning.rgba,
+              ...(row.isLoading ? { loading: phase } : {}),
             })}
             columns={barWidth}
             rows={1}
@@ -330,7 +352,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
         ) : (
           runsOf(row).map(run => (
             <Text
-              color={(run.part === 'filled' ? paint : run.warn ? settings.warning : settings.empty).text}
+              color={run.part === 'loading' ? SILVER_TEXT : (run.part === 'filled' ? paint : run.warn ? settings.warning : settings.empty).text}
               backgroundColor={(run.behind === 'warn' ? settings.warning : run.behind === 'empty' ? settings.empty : undefined)?.text}
             >
               {run.text}
@@ -342,7 +364,7 @@ export function band(view: View, settings: Settings, { Box, Text, Image }: Eleme
         {reset > 0 ? <Text> </Text> : null}
         {reset > 0 ? (
           <Text bold={row.isLive || !!row.color} color={row.color?.text} dimColor={!row.isLive && !row.color}>
-            {row.timer.slice(0, reset - 1).padStart(reset - 1)}
+            {timer.slice(0, reset - 1).padStart(reset - 1)}
           </Text>
         ) : null}
       </Box>

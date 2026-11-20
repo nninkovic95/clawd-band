@@ -22,6 +22,7 @@ A Claude Code mod that puts a band above the prompt: an animated pixel-art Clawd
 - **Usage bars**: `7d` is the weekly window, cut into its seven days, and `5h` the five-hour window. Each bar keeps its own colour at any level. The one change is on the weekly bar: once the week is in its last three days and you are using it faster than an even share per day, the unused part of those three days turns to the warning colour.
 - **Context bar**: the context window, labelled with its size (`1m`, `200k`). The percentage beside it is how full the window is, the same figure as the status line's `used_percentage`; before a session's first reply Claude Code has no such figure, so it is the local estimate that `/context` makes. Beside that, a countdown runs until the prompt cache goes cold: the time since the main thread's last reply, against the cache lifetime (`cache_ttl`). Once it lapses, the countdown turns blue and reads `cold`; the next request re-sends the whole context at the cache-write price.
 - **Countdown**: the time to each window's reset, `04d-07h-31m` for the weekly window and `02h-14m-09s` for the five-hour one. Both are 11 characters wide, so they line up under each other. A window nothing is known of shows `--d---h---m` or `--h---m---s`. A window whose reset time has passed shows 0% and `reset` until the next reply opens a new one.
+- **Loading**: a weekly or five-hour row with no reading yet shows a silver bar of slashes (`/// /// ///`) moving along, and its percentage and countdown dashes spin through `- \ | /`, a frame every 400 ms. The row settles on the figures when the reading arrives. The context row keeps its static `--`.
 - **A dot either side of each bar** leads the eye from a row's label to its bar and on to its figures.
 - **Under the pointer**: point at a row and the band's top row says more about it. For the week and the five hours: how much is used, when the window resets by your clock and, for the week, how long what is left lasts at the pace so far. For the context: its tokens. Nothing is fetched for this; the lines are drawn with the band and shown by the terminal. It needs a terminal that reports the pointer to Claude Code, and has been tried in kitty.
 
@@ -91,7 +92,7 @@ The same options are the plugin's `userConfig` fields, Claude Code's standard wa
 | `show_model` | `true` | Shows the model and effort line under Clawd. |
 | `sprite` | `picture` | How Clawd is drawn. `picture`: a picture where the terminal draws pictures, text elsewhere. `text`: always text. `off`: no Clawd. `random`: picture or text. |
 | `sprite_color` | `#d77757` | Clawd's body colour, as hex. The props keep their own colours. |
-| `animate` | `true` | Plays each pose's frames. Off, Clawd still changes pose with the session, and each pose holds its first frame. |
+| `animate` | `true` | Plays each pose's frames and the loading bars. Off, Clawd still changes pose with the session, and each pose holds its first frame; a bar with no reading yet holds still. |
 | `random_poses` | `true` | Picks one of a pose's animations at random each time. Off, a pose always plays its first. |
 | `turn_endings` | `true` | Plays the short ending when a turn ends: finished, interrupted, refused or failed. Off, Clawd goes straight to idle. |
 | `bar_style` | `pill` | What the bars are made of: `pill` (pictures), or in text `blocks` or `dots`. See [Bar styles](#bar-styles). |
@@ -318,9 +319,9 @@ claude plugin test .
 
 | File | What it covers |
 | --- | --- |
-| `band.test.tsx` | Pose mapping and the pose through a turn, usage parsing and merging, a reading taken over from another session, the account request and its retries, countdowns, whole frames, the band's layout at every width, the text Clawd, a `/clear` reload |
+| `band.test.tsx` | The loading rows (slashes and the spinning dashes), pose mapping and the pose through a turn, usage parsing and merging, a reading taken over from another session, the account request and its retries, countdowns, whole frames, the band's layout at every width, the text Clawd, a `/clear` reload |
 | `options.test.tsx` | The bar styles and their steps, the choices and a random Clawd, which rows show, Clawd as text or off, the model line, an ended window, a saved value of an option or a style that is gone |
-| `picture.test.tsx` | Clawd's picture and its box, the pill bars pixel by pixel, the fall back to text and the way back, a very wide window |
+| `picture.test.tsx` | Clawd's picture and its box, the pill bars pixel by pixel, the loading pill's moving slashes, the fall back to text and the way back, a very wide window |
 | `context.test.tsx` | The estimate for a session Claude Code has no context figure for and when it is asked, the rows' lines under the pointer, the context bar as one fill at every width |
 | `panel.test.tsx` | `/clawd`: the command, the panel's controls, what acting on them changes |
 | `sprite.test.ts` | The animations read back from their pixels: the cogs turn on each other, the big one clockwise and the small one the other way, and the loop goes right round; waiting has no loading ring; how many animations a pose has, and that no two of a pose are alike; a fish comes up on the line; the signal of a fetch goes out and its answer comes back in white |

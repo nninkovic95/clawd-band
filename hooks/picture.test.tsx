@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { BAND, core, imageOf, NOW, pixelOf, usageOf } from './kit'
+import { pill } from './pill'
 import { settings } from './settings'
 
 const ORANGE = [215, 119, 87, 255]
@@ -275,4 +276,21 @@ test('pill bars sit in rows one under the other, a little air over and under eac
     'clear',
   ])
   await ui.unmount()
+})
+
+const SILVER = [190, 195, 205, 255]
+
+test('a pill still loading is silver slashes that move a step a frame and come round in four, with none of the fill', () => {
+  const spec = { columns: 12, ratio: 2.2, percent: 0, segments: 1, warned: 0, fill: [255, 0, 0, 255], track: [30, 30, 30, 102], warn: [0, 255, 0, 255] }
+  const count = (rgba: string, colour: number[]): number => {
+    const bytes = Uint8Array.fromBase64(rgba)
+    let found = 0
+    for (let at = 0; at < bytes.length; at += 4) if (colour.every((value, channel) => bytes[at + channel] === value)) found++
+    return found
+  }
+  const frames = [0, 1, 2, 3, 4].map(loading => pill({ ...spec, loading } as never).rgba)
+  expect(count(frames[0] ?? '', SILVER)).toBeGreaterThan(50)
+  expect(count(frames[0] ?? '', [255, 0, 0, 255])).toBe(0)
+  expect(new Set(frames.slice(0, 4)).size).toBe(4)
+  expect(frames[4]).toBe(frames[0])
 })

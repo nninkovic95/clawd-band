@@ -32,7 +32,7 @@
     "animate": {
       "type": "boolean",
       "title": "Animate Clawd",
-      "description": "Off, Clawd still changes pose with what the session is doing, but each pose holds its first frame.",
+      "description": "Off, Clawd still changes pose with what the session is doing, but each pose holds its first frame, and a bar with no reading yet holds still.",
       "default": true
     },
     "random_poses": {
