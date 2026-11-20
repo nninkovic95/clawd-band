@@ -1,4 +1,4 @@
-import type { EngineInterface } from 'claude-code'
+import type { EngineInterface, SessionUsage } from 'claude-code'
 
 // What this copy keeps of the context's estimate, as /context would make it,
 // and the session it was asked of. Only a session the engine gives no figure
@@ -46,10 +46,10 @@ function inTime<T>($: EngineInterface, reading: Promise<T>): Promise<T> {
 // for; null until the session has answered.
 export const estimatedTokens = (): number | null => kept.tokens
 
-// Run once a second: a session the engine gives no figure for is asked once
-// for its estimate. The summary is estimated where the session runs and sends
-// no request.
-export async function syncContext($: EngineInterface, sessionId: string) {
+// Run once a second, given that second's `reading` of the session's usage: a
+// session the engine gives no figure for is asked once for its estimate. The
+// summary is estimated where the session runs and sends no request.
+export async function syncContext($: EngineInterface, sessionId: string, reading: Promise<SessionUsage>) {
   // A lookup that failed gives no id: not a new session, once one is known.
   if (sessionId !== kept.session && (sessionId !== '' || kept.session === null)) {
     // Another session's estimate is never drawn: cleared at once, its own wanted.
@@ -64,7 +64,7 @@ export async function syncContext($: EngineInterface, sessionId: string) {
   const version = kept.version
   let isAsked = false
   try {
-    const { context } = await inTime($, $.session.usage())
+    const { context } = await inTime($, reading)
     if (context.percent !== undefined) {
       // The engine's figure is drawn: the estimate is dropped, and wanted
       // again should the figure go missing.
@@ -75,9 +75,9 @@ export async function syncContext($: EngineInterface, sessionId: string) {
     if (!kept.isWanted) return
     isAsked = true
     kept.isWanted = false
-    const reading = (await inTime($, $.session.usage({ breakdown: 'summary' }))).context
+    const summary = (await inTime($, $.session.usage({ breakdown: 'summary' }))).context
     if (version !== kept.version) return
-    kept.tokens = reading.breakdown?.totalTokens ?? null
+    kept.tokens = summary.breakdown?.totalTokens ?? null
     $.ui.invalidate('ui.render')
   } catch {
     // One that failed is wanted still: the next pass asks again.

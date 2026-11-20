@@ -34,13 +34,16 @@ const BREAKDOWN = {
 
 const CONTEXT = { window: 1_000_000, tokens: 320807, percent: 32 }
 
-// A session the engine answers for; counts the breakdowns the mod asks of it.
+// A session the engine answers for; counts the readings and the breakdowns the mod asks of it.
 const sessionOf = (on: On, context: { window: number; tokens?: number; percent?: number } = CONTEXT, breakdown = BREAKDOWN) => {
-  const asked = { breakdowns: 0 }
+  const asked = { breakdowns: 0, readings: 0 }
   on('session.id', () => ({ value: 'one' }))
   on('session.model', () => ({ value: 'claude-fable-5-2' }))
   on('session.usage', ($, e) => {
-    if (!e.breakdown) return usageOf([], context)
+    if (!e.breakdown) {
+      asked.readings += 1
+      return usageOf([], context)
+    }
     asked.breakdowns += 1
     return usageOf([], { ...context, breakdown })
   })
@@ -799,5 +802,33 @@ test("a session's estimate is dropped once the engine gives its figure, and aske
   expect(await figureOf(ui)).toBe('45%')
   await clock.advance(5000)
   expect(session.asked).toEqual(['one', 'one'])
+  await ui.unmount()
+})
+
+test("the session's usage is read once a second, by the context's estimate and the band's rows together", { options: { animate: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const asked = sessionOf(on)
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  asked.readings = 0
+  // Nothing on the band moves: no countdown runs, the figure stays.
+  await clock.advance(10_000)
+  expect(asked.readings).toBe(10)
+  expect(await figureOf(ui)).toBe('32%')
+  await ui.unmount()
+})
+
+test("a second whose rows moved is drawn from the rows that second built: the session's usage is read once for both", { options: { animate: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const asked = sessionOf(on)
+  // A reply a minute ago: the cache's countdown steps each second, and the band is drawn again.
+  on('state.get', { key: 'cacheAt' }, () => ({ value: { value: NOW - 60_000, version: 1 } }))
+  const ui = await $.ui.mount(PILLS)
+  await clock.advance(1000)
+  asked.readings = 0
+  await clock.advance(10_000)
+  // A frame every 400ms: the last pass is of second 10, 3530 seconds before the hour is out.
+  expect(await ui.find({ type: 'Text', text: /00h-58m-50s$/ })).toBeDefined()
+  expect(asked.readings).toBe(10)
   await ui.unmount()
 })

@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, SessionContextUsage, Timer, TurnCompleteReason } from 'claude-code'
+import type { EngineInterface, Register, SessionContextUsage, SessionUsage, Timer, TurnCompleteReason } from 'claude-code'
 
-import type { Model, Pose } from '../types'
+import type { Model, Pose, Usage } from '../types'
 import { band, fit } from './band'
 import { rowsOf } from './rows'
+import type { Row } from './rows'
 import { estimatedTokens, syncContext } from './context'
 import type { Clawd } from './band'
 import { poseFor, poser, RULES } from './pose'
@@ -108,6 +109,9 @@ const live: {
   second: number
   // The rows of the last draw, as text: a second that leaves them so draws nothing.
   rowsDrawn: string | null
+  // The rows a second built that moved, for the draw it asks for, and what
+  // they were built from (rowsKey); the draw builds its own from other state.
+  rowsBuilt: { key: string; rows: Row[] } | null
   // Whether the last draw had a row spinning: it is redrawn each frame.
   isSpinning: boolean
 } = {
@@ -120,6 +124,7 @@ const live: {
   tickedAt: 0,
   second: 0,
   rowsDrawn: null,
+  rowsBuilt: null,
   isSpinning: false,
 }
 
@@ -172,9 +177,9 @@ const showFrame = ($: EngineInterface) =>
 
 // The context window's fill. Before a session's first reply the engine has no
 // figure for it, so the band shows the estimate /context would make, which
-// costs no request.
-async function contextOf($: EngineInterface): Promise<SessionContextUsage | undefined> {
-  const context = (await $.session.usage().catch(() => null))?.context
+// costs no request. `reading` is the session's usage, read once for all that want it.
+async function contextOf(reading: Promise<SessionUsage>): Promise<SessionContextUsage | undefined> {
+  const context = (await reading.catch(() => null))?.context
   if (!context || context.percent !== undefined) return context
   const tokens = estimatedTokens()
   if (tokens === null || context.window <= 0) return context
@@ -187,26 +192,30 @@ async function loadModel($: EngineInterface) {
 }
 
 // The rows as drawn at `now`, from what the session holds.
-async function rowsAt($: EngineInterface, now: number) {
+const rowsFrom = (usage: Usage | null, cacheAt: number | null, context: SessionContextUsage | undefined, now: number): Row[] =>
   // A window that resets mid-session drops to 0% on the next tick, not the next reply.
-  const usage = resetExpired(await read($, usageAtom), now)
-  const cacheAt = await read($, cacheAtom)
-  const context = await contextOf($)
-  return rowsOf({ usage, context, cacheAt, now }, config)
-}
+  rowsOf({ usage: resetExpired(usage, now), context, cacheAt, now }, config)
+
+// What rows are built from, the session's reading aside: the state, the estimate, the second.
+const rowsKey = (usage: Usage | null, cacheAt: number | null, now: number): string =>
+  JSON.stringify([usage, cacheAt, estimatedTokens(), Math.floor(now / 1000)])
 
 // A new second redraws the band only where its rows read otherwise: a
 // countdown that moved, a window that ran out, a figure the session changed
 // with no word of it. A write of what the band read redraws it already, and
-// Clawd's frames have their own redraw.
-async function redrawRows($: EngineInterface, now: number) {
-  if (JSON.stringify(await rowsAt($, now)) !== live.rowsDrawn) $.ui.invalidate('ui.render')
+// Clawd's frames have their own redraw. The rows built here are drawn.
+async function redrawRows($: EngineInterface, now: number, reading: Promise<SessionUsage>) {
+  const [usage, cacheAt, context] = await Promise.all([read($, usageAtom), read($, cacheAtom), contextOf(reading)])
+  const rows = rowsFrom(usage, cacheAt, context, now)
+  if (JSON.stringify(rows) === live.rowsDrawn) return
+  live.rowsBuilt = { key: rowsKey(usage, cacheAt, now), rows }
+  $.ui.invalidate('ui.render')
 }
 
 // A /clear goes on in the same process under a new session id, with empty
 // $.state and no session.start: a changed id loads the model again, and the
 // usage with it. A load that failed is tried again the next second.
-async function everySecond($: EngineInterface, now: number) {
+async function everySecond($: EngineInterface, now: number, reading: Promise<SessionUsage>) {
   const id = await $.session.id().catch(() => '')
   if (id !== live.sessionId) {
     live.sessionId = id
@@ -221,7 +230,7 @@ async function everySecond($: EngineInterface, now: number) {
     )
   }
   // Not waited for: the usage below has its own waits.
-  if (config.showContext) quietly(syncContext($, id))
+  if (config.showContext) quietly(syncContext($, id, reading))
   // The account is asked only for a row that shows.
   if (config.showWeekly || config.showFiveHour) await syncUsage($, now, id)
 }
@@ -238,8 +247,10 @@ async function tick($: EngineInterface) {
   const isNewSecond = second !== live.second
   if (isNewSecond) {
     live.second = second
-    quietly(everySecond($, now))
-    quietly(redrawRows($, now))
+    // One reading of the session's usage a second, for the estimate and the rows both.
+    const reading = $.session.usage()
+    quietly(everySecond($, now, reading))
+    quietly(redrawRows($, now, reading))
   }
   await probe($, isNewSecond)
   await showFrame($)
@@ -386,9 +397,12 @@ export const register: Register = (on, options) => {
 
     live.bandId = e.requestId
     live.isWorking = e.props.isWorking
-    const now = await $.clock.now()
-    const model = await read($, modelAtom)
-    const rows = await rowsAt($, now)
+    // The state is read here, whatever the rows are built from: a write of it redraws the band.
+    const [now, model, usage, cacheAt] = await Promise.all([$.clock.now(), read($, modelAtom), read($, usageAtom), read($, cacheAtom)])
+    const built = live.rowsBuilt
+    live.rowsBuilt = null
+    const rows =
+      built?.key === rowsKey(usage, cacheAt, now) ? built.rows : rowsFrom(usage, cacheAt, await contextOf($.session.usage()), now)
     live.rowsDrawn = JSON.stringify(rows)
     live.isSpinning = config.animate && rows.some(row => row.isLoading)
 
