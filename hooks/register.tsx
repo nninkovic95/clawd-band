@@ -21,6 +21,7 @@ import { merging } from './merge'
 import { setUsage, syncUsage } from './usage/account'
 import { resetExpired } from './usage/model'
 import { asStoredModel } from './state'
+import { quietly } from './quiet'
 
 const poseAtom = atom({ plugin: 'clawd-band', key: 'pose' } as const, 'idle')
 // Written by usage.ts; an atom is named in each file that reads it.
@@ -220,7 +221,7 @@ async function everySecond($: EngineInterface, now: number) {
     )
   }
   // Not waited for: the usage below has its own waits.
-  if (config.showContext) void syncContext($, id).catch(() => undefined)
+  if (config.showContext) quietly(syncContext($, id))
   // The account is asked only for a row that shows.
   if (config.showWeekly || config.showFiveHour) await syncUsage($, now, id)
 }
@@ -237,8 +238,8 @@ async function tick($: EngineInterface) {
   const isNewSecond = second !== live.second
   if (isNewSecond) {
     live.second = second
-    void everySecond($, now).catch(() => undefined)
-    void redrawRows($, now).catch(() => undefined)
+    quietly(everySecond($, now))
+    quietly(redrawRows($, now))
   }
   await probe($, isNewSecond)
   await showFrame($)
@@ -258,12 +259,12 @@ function ensureStarted($: EngineInterface) {
   if (!live.timer) {
     // A module loaded again mid-session takes up the pose the last one left.
     void read($, poseAtom).then(seedPose, () => undefined)
-    void offerCommand($).catch(() => undefined)
+    quietly(offerCommand($))
   }
   live.timer?.cancel()
   live.tickedAt = Date.now()
-  live.timer = $.clock.every(FRAME_MS, () => void tick($).catch(() => undefined))
-  $.clock.after(0, () => void tick($).catch(() => undefined))
+  live.timer = $.clock.every(FRAME_MS, () => quietly(tick($)))
+  $.clock.after(0, () => quietly(tick($)))
   $.ui.invalidate('ui.render')
 }
 
@@ -326,7 +327,7 @@ export const register: Register = (on, options) => {
       // A subagent's tool gets a glance; then Clawd is back at what the
       // conversation itself is doing, unless that has moved on meanwhile.
       const handBack = await settled($, () => posing.glance(poseFor(tool)))
-      $.clock.after(GLANCE_MS, () => void settled($, handBack).catch(() => undefined))
+      $.clock.after(GLANCE_MS, () => quietly(settled($, handBack)))
       return next(e)
     }
     const release = await settled($, () => posing.hold(poseFor(tool)))
@@ -362,7 +363,7 @@ export const register: Register = (on, options) => {
         else if (posing.main === 'compacting') await ask($, live.isWorking ? 'waiting' : 'idle')
       }
       // After the draw: state set while a hook draws is dropped.
-      $.clock.after(0, () => void turnPose().catch(() => undefined))
+      $.clock.after(0, () => quietly(turnPose()))
     }
     if (e.surface !== 'terminal' || config.keepSpinner) return next(e)
     const { Box } = $.ui.resolve(e)
